@@ -1,37 +1,38 @@
 # GitHub and Watchtower deployment
 
-Prepared image reference:
+Docker image reference:
 
 ```text
 ghcr.io/uberswimmer/royalcaribbean-availability:latest
 ```
 
-**Publication is pending.** This address is not verified as pullable. The current
-source has not yet been pushed to an accessible GitHub fork. Do not change your
-running container until the first successful publication is confirmed.
+Source is maintained at https://github.com/uberswimmer/CheckRoyalCaribbeanPrice.
+The first AMD64/ARM64 publication succeeded on September 10, 2026:
+https://github.com/uberswimmer/CheckRoyalCaribbeanPrice/actions/runs/34511737060
 
-## One-time GitHub setup
+## GitHub publication and registry access
 
-1. Fork https://github.com/jdeath/CheckRoyalCaribbeanPrice into `uberswimmer`.
-   Keep the repository name `CheckRoyalCaribbeanPrice` and default branch `main`.
-2. Allow the connected GitHub app to access the fork if it uses selected repositories.
-3. Enable GitHub Actions on the fork's Actions tab. The extension source and its
-   publishing workflow must then be committed to the fork's `main` branch.
-4. The `Availability build and publish` workflow tests the code and smoke-tests the
-   native container before publishing Linux AMD64 and ARM64 images. ARM64 is built
-   but not exercised by the native smoke test. A failed test/build prevents the
-   publishing job or image export. Manual runs on `main` also publish.
-5. After the first publication, open the `royalcaribbean-availability` package under
-   your GitHub profile's Packages tab. For pulls without credentials, change its
-   visibility to public in Package settings. New GHCR packages default to private.
-   If you keep it private, configure GHCR read access on both Docker and Watchtower.
-   Do not commit registry tokens, Royal credentials, or personal configuration.
+The `Availability build and publish` workflow runs the complete test suite, builds
+and smoke-tests the native container, then publishes Linux AMD64 and ARM64 images
+on successful `main` builds. ARM64 is built but not exercised by the native smoke
+test. Manual runs on `main` also publish. Confirm the workflow succeeded before
+the first pull.
 
-Publishing uses the workflow's built-in `GITHUB_TOKEN` with `packages: write`.
-No personal access token is needed to publish from Actions. The package name is
-separate from the inherited upstream release workflow's image name.
+Publishing uses the built-in `GITHUB_TOKEN` with `packages: write`, so no personal
+access token is needed for Actions. The package name is separate from the inherited
+upstream release workflow's image name.
+
+New GHCR packages default to private. For pulls without credentials, open the
+`royalcaribbean-availability` package under your GitHub profile's Packages tab,
+then Package settings, and change its visibility to public. If you keep it private,
+configure GHCR read access on both Docker and Watchtower. Do not commit registry
+tokens, Royal credentials, or personal configuration.
 
 ## Start your separate container
+
+Only one YAML configuration file is needed for this service. On the host it is
+`config.availability.yaml`; the bind mount presents that same file inside the
+container as `/app/config.yaml`. Do not create a second config inside the container.
 
 Follow `AVAILABILITY-SETUP.md` to create `config.availability.yaml`, set your booking
 IDs, and create the `data` directory. Match `TZ` and `CRON_SCHEDULE` to your existing
@@ -72,8 +73,9 @@ workflow for the same source SHA may rebuild different bytes.
 
 Upstream changes should be merged into a review branch and tested before merging
 to your fork's `main`. A GitHub release alone does not update this availability
-image; this workflow publishes successful `main` builds. No automatic upstream
-merge task has been configured.
+image; this workflow publishes successful `main` builds. Daily upstream monitoring prepares reviewed and tested update PRs. These PRs
+require approval before merging; upstream changes are not automatically merged
+into the deployed branch.
 
 References:
 - https://docs.github.com/en/actions/tutorials/publish-packages/publish-docker-images

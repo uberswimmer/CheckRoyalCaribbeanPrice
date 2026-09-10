@@ -170,8 +170,8 @@ python -m pytest unittests/ -q
 The original uploaded captures and credentials are not included. The new GitHub
 Actions workflow runs all tests, builds the Docker image, and exercises configuration
 validation inside the image. On the `uberswimmer` fork, successful `main` builds
-also publish the availability image to GHCR. Publication is pending the fork setup;
-see `GITHUB-DEPLOYMENT.md`.
+also publish the availability image to GHCR. The source is now in your fork;
+see `GITHUB-DEPLOYMENT.md` for registry access and first-run instructions.
 
 See `AVAILABILITY-REVIEW.md` for completed review, tests, and remaining validation.
 See `UPSTREAM-BASELINE.md` for the exact upstream commit and fork maintenance approach.

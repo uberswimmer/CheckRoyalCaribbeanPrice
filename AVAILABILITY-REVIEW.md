@@ -3,8 +3,10 @@
 ## Result
 
 The 0.1.0-test source build is complete and ready for a diagnostic run in a separate
-container. Review and offline validation passed. Docker image execution and live
-Royal Caribbean authentication/eligibility calls remain unverified in this environment.
+container. Review and offline validation passed. GitHub Actions also passed the
+native Docker build, Compose validation, and container configuration/entrypoint
+smoke test on September 10, 2026. Live Royal Caribbean authentication/eligibility
+calls remain unverified.
 This is a test build, not a claim of production or booking success.
 
 ## Scope reviewed
@@ -85,10 +87,11 @@ the production functions, then verifies one alert across two runs.
 5. Enable alerts and confirm a first live notification using your configured Apprise
    destination. Preserve `data/availability.sqlite3` when replacing the container.
 
-There is no Docker executable/daemon in the build workspace, so an actual image build
-or container run was not possible here. A CI workflow is included to build the image
-and validate the entrypoint, but it has not been run remotely or reported as passing.
-Local YAML parsing is not a substitute for Docker Compose runtime validation.
+The build workspace has no Docker daemon. Remote validation is now available:
+https://github.com/uberswimmer/CheckRoyalCaribbeanPrice/actions/runs/34511737060
+The `test` job passed the suite, native image build, both Compose configurations,
+and `check --validate-config` inside the image. This does not verify a live login,
+API call, notification, cron execution, or ARM64 runtime behavior.
 
 Royal Railway's `9999` stock signal is not interpreted as a literal seat count or
 proof of a table for seven. These captures validate reported inventory and restrictions,
