@@ -10,7 +10,8 @@ fi
 # Check if the first argument is "check"
 if [ "$1" = "check" ]; then
     # Execute the Python script directly for single price check
-    exec python CheckRoyalCaribbeanPrice.py
+    shift
+    exec python CheckRoyalCaribbeanPrice.py "$@"
 fi
 
 # If other arguments are provided, execute them

@@ -1,3 +1,5 @@
+> Availability extension test build: see [separate-container setup](AVAILABILITY-SETUP.md) and [review](AVAILABILITY-REVIEW.md).
+
 # CheckRoyalCaribbeanPrice
 Checks if you have the cheapest price for your **Royal Caribbean** and **Celebrity Cruises** purchases (beverage packages, excursions, internet, etc.).  Not affiliated with Royal Caribbean Group in any way. 
 - ✅ Automatically checks your purchased packages (no need to enter them manually)  

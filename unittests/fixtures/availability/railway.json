@@ -1,0 +1,1001 @@
+{
+  "status": 200,
+  "error": null,
+  "warnings": null,
+  "payload": {
+    "productCode": "UT_RAILDINNER",
+    "categoryId": "pt_dining",
+    "salesUnit": "PER_SEAT",
+    "guestLimit": 8,
+    "diningType": "SPECIALTY",
+    "guests": [
+      {
+        "id": "guest-1",
+        "reservationId": "booking-3",
+        "remainingBookableQty": 9999,
+        "issues": [
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-1",
+            "conflict": {
+              "offering": {
+                "id": "UT_RAILDINNER-UT20270212-202702121800"
+              }
+            }
+          },
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-1",
+            "conflict": {
+              "offering": {
+                "id": "UT_RAILDINNER-UT20270212-202702121810"
+              }
+            }
+          },
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-1",
+            "conflict": {
+              "offering": {
+                "id": "UT_RAILDINNER-UT20270212-202702131800"
+              }
+            }
+          },
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-1",
+            "conflict": {
+              "offering": {
+                "id": "UT_RAILDINNER-UT20270212-202702131810"
+              }
+            }
+          },
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-1",
+            "conflict": {
+              "offering": {
+                "id": "UT_RAILDINNER-UT20270212-202702132030"
+              }
+            }
+          },
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-1",
+            "conflict": {
+              "offering": {
+                "id": "UT_RAILDINNER-UT20270212-202702132040"
+              }
+            }
+          },
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-1",
+            "conflict": {
+              "offering": {
+                "id": "UT_RAILDINNER-UT20270212-202702141800"
+              }
+            }
+          },
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-1",
+            "conflict": {
+              "offering": {
+                "id": "UT_RAILDINNER-UT20270212-202702141810"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "guest-2",
+        "reservationId": "booking-3",
+        "remainingBookableQty": 9999,
+        "issues": [
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-2",
+            "conflict": {
+              "offering": {
+                "id": "UT_RAILDINNER-UT20270212-202702121800"
+              }
+            }
+          },
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-2",
+            "conflict": {
+              "offering": {
+                "id": "UT_RAILDINNER-UT20270212-202702121810"
+              }
+            }
+          },
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-2",
+            "conflict": {
+              "offering": {
+                "id": "UT_RAILDINNER-UT20270212-202702131800"
+              }
+            }
+          },
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-2",
+            "conflict": {
+              "offering": {
+                "id": "UT_RAILDINNER-UT20270212-202702131810"
+              }
+            }
+          },
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-2",
+            "conflict": {
+              "offering": {
+                "id": "UT_RAILDINNER-UT20270212-202702132030"
+              }
+            }
+          },
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-2",
+            "conflict": {
+              "offering": {
+                "id": "UT_RAILDINNER-UT20270212-202702132040"
+              }
+            }
+          },
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-2",
+            "conflict": {
+              "offering": {
+                "id": "UT_RAILDINNER-UT20270212-202702141800"
+              }
+            }
+          },
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-2",
+            "conflict": {
+              "offering": {
+                "id": "UT_RAILDINNER-UT20270212-202702141810"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "guest-3",
+        "reservationId": "booking-3",
+        "remainingBookableQty": 9999,
+        "issues": [
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-3",
+            "conflict": {
+              "offering": {
+                "id": "UT_RAILDINNER-UT20270212-202702121800"
+              }
+            }
+          },
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-3",
+            "conflict": {
+              "offering": {
+                "id": "UT_RAILDINNER-UT20270212-202702121810"
+              }
+            }
+          },
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-3",
+            "conflict": {
+              "offering": {
+                "id": "UT_RAILDINNER-UT20270212-202702131800"
+              }
+            }
+          },
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-3",
+            "conflict": {
+              "offering": {
+                "id": "UT_RAILDINNER-UT20270212-202702131810"
+              }
+            }
+          },
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-3",
+            "conflict": {
+              "offering": {
+                "id": "UT_RAILDINNER-UT20270212-202702132030"
+              }
+            }
+          },
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-3",
+            "conflict": {
+              "offering": {
+                "id": "UT_RAILDINNER-UT20270212-202702132040"
+              }
+            }
+          },
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-3",
+            "conflict": {
+              "offering": {
+                "id": "UT_RAILDINNER-UT20270212-202702141800"
+              }
+            }
+          },
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-3",
+            "conflict": {
+              "offering": {
+                "id": "UT_RAILDINNER-UT20270212-202702141810"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "guest-4",
+        "reservationId": "booking-7",
+        "remainingBookableQty": 9999,
+        "issues": [
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-4",
+            "conflict": {
+              "offering": {
+                "id": "UT_RAILDINNER-UT20270212-202702121800"
+              }
+            }
+          },
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-4",
+            "conflict": {
+              "offering": {
+                "id": "UT_RAILDINNER-UT20270212-202702121810"
+              }
+            }
+          },
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-4",
+            "conflict": {
+              "offering": {
+                "id": "UT_RAILDINNER-UT20270212-202702131800"
+              }
+            }
+          },
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-4",
+            "conflict": {
+              "offering": {
+                "id": "UT_RAILDINNER-UT20270212-202702131810"
+              }
+            }
+          },
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-4",
+            "conflict": {
+              "offering": {
+                "id": "UT_RAILDINNER-UT20270212-202702132030"
+              }
+            }
+          },
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-4",
+            "conflict": {
+              "offering": {
+                "id": "UT_RAILDINNER-UT20270212-202702132040"
+              }
+            }
+          },
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-4",
+            "conflict": {
+              "offering": {
+                "id": "UT_RAILDINNER-UT20270212-202702141800"
+              }
+            }
+          },
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-4",
+            "conflict": {
+              "offering": {
+                "id": "UT_RAILDINNER-UT20270212-202702141810"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "guest-5",
+        "reservationId": "booking-7",
+        "remainingBookableQty": 9999,
+        "issues": [
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-5",
+            "conflict": {
+              "offering": {
+                "id": "UT_RAILDINNER-UT20270212-202702121800"
+              }
+            }
+          },
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-5",
+            "conflict": {
+              "offering": {
+                "id": "UT_RAILDINNER-UT20270212-202702121810"
+              }
+            }
+          },
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-5",
+            "conflict": {
+              "offering": {
+                "id": "UT_RAILDINNER-UT20270212-202702131800"
+              }
+            }
+          },
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-5",
+            "conflict": {
+              "offering": {
+                "id": "UT_RAILDINNER-UT20270212-202702131810"
+              }
+            }
+          },
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-5",
+            "conflict": {
+              "offering": {
+                "id": "UT_RAILDINNER-UT20270212-202702132030"
+              }
+            }
+          },
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-5",
+            "conflict": {
+              "offering": {
+                "id": "UT_RAILDINNER-UT20270212-202702132040"
+              }
+            }
+          },
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-5",
+            "conflict": {
+              "offering": {
+                "id": "UT_RAILDINNER-UT20270212-202702141800"
+              }
+            }
+          },
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-5",
+            "conflict": {
+              "offering": {
+                "id": "UT_RAILDINNER-UT20270212-202702141810"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "guest-6",
+        "reservationId": "booking-7",
+        "remainingBookableQty": 9999,
+        "issues": [
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-6",
+            "conflict": {
+              "offering": {
+                "id": "UT_RAILDINNER-UT20270212-202702121800"
+              }
+            }
+          },
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-6",
+            "conflict": {
+              "offering": {
+                "id": "UT_RAILDINNER-UT20270212-202702121810"
+              }
+            }
+          },
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-6",
+            "conflict": {
+              "offering": {
+                "id": "UT_RAILDINNER-UT20270212-202702131800"
+              }
+            }
+          },
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-6",
+            "conflict": {
+              "offering": {
+                "id": "UT_RAILDINNER-UT20270212-202702131810"
+              }
+            }
+          },
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-6",
+            "conflict": {
+              "offering": {
+                "id": "UT_RAILDINNER-UT20270212-202702132030"
+              }
+            }
+          },
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-6",
+            "conflict": {
+              "offering": {
+                "id": "UT_RAILDINNER-UT20270212-202702132040"
+              }
+            }
+          },
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-6",
+            "conflict": {
+              "offering": {
+                "id": "UT_RAILDINNER-UT20270212-202702141800"
+              }
+            }
+          },
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-6",
+            "conflict": {
+              "offering": {
+                "id": "UT_RAILDINNER-UT20270212-202702141810"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "guest-7",
+        "reservationId": "booking-7",
+        "remainingBookableQty": 9999,
+        "issues": [
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-7",
+            "conflict": {
+              "offering": {
+                "id": "UT_RAILDINNER-UT20270212-202702121800"
+              }
+            }
+          },
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-7",
+            "conflict": {
+              "offering": {
+                "id": "UT_RAILDINNER-UT20270212-202702121810"
+              }
+            }
+          },
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-7",
+            "conflict": {
+              "offering": {
+                "id": "UT_RAILDINNER-UT20270212-202702131800"
+              }
+            }
+          },
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-7",
+            "conflict": {
+              "offering": {
+                "id": "UT_RAILDINNER-UT20270212-202702131810"
+              }
+            }
+          },
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-7",
+            "conflict": {
+              "offering": {
+                "id": "UT_RAILDINNER-UT20270212-202702132030"
+              }
+            }
+          },
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-7",
+            "conflict": {
+              "offering": {
+                "id": "UT_RAILDINNER-UT20270212-202702132040"
+              }
+            }
+          },
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-7",
+            "conflict": {
+              "offering": {
+                "id": "UT_RAILDINNER-UT20270212-202702141800"
+              }
+            }
+          },
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-7",
+            "conflict": {
+              "offering": {
+                "id": "UT_RAILDINNER-UT20270212-202702141810"
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "offerings": [
+      {
+        "id": "UT_RAILDINNER-UT20270212-202702121800",
+        "active": false,
+        "dateTime": "2027-02-12T18:00:00",
+        "stockLevelStatus": "inStock",
+        "stockLevel": 9999,
+        "pricing": {
+          "currencyIso": "USD",
+          "adultPromotionalPrice": 107.99,
+          "childPromotionalPrice": 44.99,
+          "infantPromotionalPrice": null,
+          "adultShipboardPrice": 120.0,
+          "childShipboardPrice": 50.0,
+          "infantShipboardPrice": 0.0,
+          "adultShipboardTax": null,
+          "childShipboardTax": null,
+          "infantShipboardTax": null,
+          "adultDiscountAmount": null,
+          "childDiscountAmount": null,
+          "infantDiscountAmount": null,
+          "adultDiscountPercentage": 10,
+          "childDiscountPercentage": 10,
+          "infantDiscountPercentage": null,
+          "couponCode": null,
+          "priceRollupType": "TAX_ROLLUP"
+        },
+        "isInCart": false,
+        "isReserved": null,
+        "issues": [
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-4"
+          },
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-1"
+          }
+        ]
+      },
+      {
+        "id": "UT_RAILDINNER-UT20270212-202702121810",
+        "active": false,
+        "dateTime": "2027-02-12T18:10:00",
+        "stockLevelStatus": "inStock",
+        "stockLevel": 9999,
+        "pricing": {
+          "currencyIso": "USD",
+          "adultPromotionalPrice": 107.99,
+          "childPromotionalPrice": 44.99,
+          "infantPromotionalPrice": null,
+          "adultShipboardPrice": 120.0,
+          "childShipboardPrice": 50.0,
+          "infantShipboardPrice": 0.0,
+          "adultShipboardTax": null,
+          "childShipboardTax": null,
+          "infantShipboardTax": null,
+          "adultDiscountAmount": 12.01,
+          "childDiscountAmount": 5.01,
+          "infantDiscountAmount": null,
+          "adultDiscountPercentage": 10,
+          "childDiscountPercentage": 10,
+          "infantDiscountPercentage": null,
+          "couponCode": null,
+          "priceRollupType": "TAX_ROLLUP"
+        },
+        "isInCart": false,
+        "isReserved": null,
+        "issues": [
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-4"
+          },
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-1"
+          }
+        ]
+      },
+      {
+        "id": "UT_RAILDINNER-UT20270212-202702122030",
+        "active": false,
+        "dateTime": "2027-02-12T20:30:00",
+        "stockLevelStatus": "inStock",
+        "stockLevel": 9999,
+        "pricing": {
+          "currencyIso": "USD",
+          "adultPromotionalPrice": 107.99,
+          "childPromotionalPrice": 44.99,
+          "infantPromotionalPrice": null,
+          "adultShipboardPrice": 120.0,
+          "childShipboardPrice": 50.0,
+          "infantShipboardPrice": 0.0,
+          "adultShipboardTax": null,
+          "childShipboardTax": null,
+          "infantShipboardTax": null,
+          "adultDiscountAmount": 12.01,
+          "childDiscountAmount": 5.01,
+          "infantDiscountAmount": null,
+          "adultDiscountPercentage": 10,
+          "childDiscountPercentage": 10,
+          "infantDiscountPercentage": null,
+          "couponCode": null,
+          "priceRollupType": "TAX_ROLLUP"
+        },
+        "isInCart": false,
+        "isReserved": null,
+        "issues": []
+      },
+      {
+        "id": "UT_RAILDINNER-UT20270212-202702122040",
+        "active": false,
+        "dateTime": "2027-02-12T20:40:00",
+        "stockLevelStatus": "inStock",
+        "stockLevel": 9999,
+        "pricing": {
+          "currencyIso": "USD",
+          "adultPromotionalPrice": 107.99,
+          "childPromotionalPrice": 44.99,
+          "infantPromotionalPrice": null,
+          "adultShipboardPrice": 120.0,
+          "childShipboardPrice": 50.0,
+          "infantShipboardPrice": 0.0,
+          "adultShipboardTax": null,
+          "childShipboardTax": null,
+          "infantShipboardTax": null,
+          "adultDiscountAmount": 12.01,
+          "childDiscountAmount": 5.01,
+          "infantDiscountAmount": null,
+          "adultDiscountPercentage": 10,
+          "childDiscountPercentage": 10,
+          "infantDiscountPercentage": null,
+          "couponCode": null,
+          "priceRollupType": "TAX_ROLLUP"
+        },
+        "isInCart": false,
+        "isReserved": null,
+        "issues": []
+      },
+      {
+        "id": "UT_RAILDINNER-UT20270212-202702131800",
+        "active": false,
+        "dateTime": "2027-02-13T18:00:00",
+        "stockLevelStatus": "inStock",
+        "stockLevel": 9999,
+        "pricing": {
+          "currencyIso": "USD",
+          "adultPromotionalPrice": 107.99,
+          "childPromotionalPrice": 44.99,
+          "infantPromotionalPrice": null,
+          "adultShipboardPrice": 120.0,
+          "childShipboardPrice": 50.0,
+          "infantShipboardPrice": 0.0,
+          "adultShipboardTax": null,
+          "childShipboardTax": null,
+          "infantShipboardTax": null,
+          "adultDiscountAmount": 12.01,
+          "childDiscountAmount": 5.01,
+          "infantDiscountAmount": null,
+          "adultDiscountPercentage": 10,
+          "childDiscountPercentage": 10,
+          "infantDiscountPercentage": null,
+          "couponCode": null,
+          "priceRollupType": "TAX_ROLLUP"
+        },
+        "isInCart": false,
+        "isReserved": null,
+        "issues": [
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-4"
+          },
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-1"
+          }
+        ]
+      },
+      {
+        "id": "UT_RAILDINNER-UT20270212-202702131810",
+        "active": false,
+        "dateTime": "2027-02-13T18:10:00",
+        "stockLevelStatus": "inStock",
+        "stockLevel": 9999,
+        "pricing": {
+          "currencyIso": "USD",
+          "adultPromotionalPrice": 107.99,
+          "childPromotionalPrice": 44.99,
+          "infantPromotionalPrice": null,
+          "adultShipboardPrice": 120.0,
+          "childShipboardPrice": 50.0,
+          "infantShipboardPrice": 0.0,
+          "adultShipboardTax": null,
+          "childShipboardTax": null,
+          "infantShipboardTax": null,
+          "adultDiscountAmount": 12.01,
+          "childDiscountAmount": 5.01,
+          "infantDiscountAmount": null,
+          "adultDiscountPercentage": 10,
+          "childDiscountPercentage": 10,
+          "infantDiscountPercentage": null,
+          "couponCode": null,
+          "priceRollupType": "TAX_ROLLUP"
+        },
+        "isInCart": false,
+        "isReserved": null,
+        "issues": [
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-4"
+          },
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-1"
+          }
+        ]
+      },
+      {
+        "id": "UT_RAILDINNER-UT20270212-202702132030",
+        "active": false,
+        "dateTime": "2027-02-13T20:30:00",
+        "stockLevelStatus": "inStock",
+        "stockLevel": 9999,
+        "pricing": {
+          "currencyIso": "USD",
+          "adultPromotionalPrice": 107.99,
+          "childPromotionalPrice": 44.99,
+          "infantPromotionalPrice": null,
+          "adultShipboardPrice": 120.0,
+          "childShipboardPrice": 50.0,
+          "infantShipboardPrice": 0.0,
+          "adultShipboardTax": null,
+          "childShipboardTax": null,
+          "infantShipboardTax": null,
+          "adultDiscountAmount": 12.01,
+          "childDiscountAmount": 5.01,
+          "infantDiscountAmount": null,
+          "adultDiscountPercentage": 10,
+          "childDiscountPercentage": 10,
+          "infantDiscountPercentage": null,
+          "couponCode": null,
+          "priceRollupType": "TAX_ROLLUP"
+        },
+        "isInCart": false,
+        "isReserved": null,
+        "issues": [
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-4"
+          },
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-1"
+          }
+        ]
+      },
+      {
+        "id": "UT_RAILDINNER-UT20270212-202702132040",
+        "active": false,
+        "dateTime": "2027-02-13T20:40:00",
+        "stockLevelStatus": "inStock",
+        "stockLevel": 9999,
+        "pricing": {
+          "currencyIso": "USD",
+          "adultPromotionalPrice": 107.99,
+          "childPromotionalPrice": 44.99,
+          "infantPromotionalPrice": null,
+          "adultShipboardPrice": 120.0,
+          "childShipboardPrice": 50.0,
+          "infantShipboardPrice": 0.0,
+          "adultShipboardTax": null,
+          "childShipboardTax": null,
+          "infantShipboardTax": null,
+          "adultDiscountAmount": 12.01,
+          "childDiscountAmount": 5.01,
+          "infantDiscountAmount": null,
+          "adultDiscountPercentage": 10,
+          "childDiscountPercentage": 10,
+          "infantDiscountPercentage": null,
+          "couponCode": null,
+          "priceRollupType": "TAX_ROLLUP"
+        },
+        "isInCart": false,
+        "isReserved": null,
+        "issues": [
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-4"
+          },
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-1"
+          }
+        ]
+      },
+      {
+        "id": "UT_RAILDINNER-UT20270212-202702141800",
+        "active": false,
+        "dateTime": "2027-02-14T18:00:00",
+        "stockLevelStatus": "inStock",
+        "stockLevel": 9999,
+        "pricing": {
+          "currencyIso": "USD",
+          "adultPromotionalPrice": 107.99,
+          "childPromotionalPrice": 44.99,
+          "infantPromotionalPrice": null,
+          "adultShipboardPrice": 120.0,
+          "childShipboardPrice": 50.0,
+          "infantShipboardPrice": 0.0,
+          "adultShipboardTax": null,
+          "childShipboardTax": null,
+          "infantShipboardTax": null,
+          "adultDiscountAmount": 12.01,
+          "childDiscountAmount": 5.01,
+          "infantDiscountAmount": null,
+          "adultDiscountPercentage": 10,
+          "childDiscountPercentage": 10,
+          "infantDiscountPercentage": null,
+          "couponCode": null,
+          "priceRollupType": "TAX_ROLLUP"
+        },
+        "isInCart": false,
+        "isReserved": null,
+        "issues": [
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-4"
+          },
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-3"
+          }
+        ]
+      },
+      {
+        "id": "UT_RAILDINNER-UT20270212-202702141810",
+        "active": false,
+        "dateTime": "2027-02-14T18:10:00",
+        "stockLevelStatus": "inStock",
+        "stockLevel": 9999,
+        "pricing": {
+          "currencyIso": "USD",
+          "adultPromotionalPrice": 107.99,
+          "childPromotionalPrice": 44.99,
+          "infantPromotionalPrice": null,
+          "adultShipboardPrice": 120.0,
+          "childShipboardPrice": 50.0,
+          "infantShipboardPrice": 0.0,
+          "adultShipboardTax": null,
+          "childShipboardTax": null,
+          "infantShipboardTax": null,
+          "adultDiscountAmount": 12.01,
+          "childDiscountAmount": 5.01,
+          "infantDiscountAmount": null,
+          "adultDiscountPercentage": 10,
+          "childDiscountPercentage": 10,
+          "infantDiscountPercentage": null,
+          "couponCode": null,
+          "priceRollupType": "TAX_ROLLUP"
+        },
+        "isInCart": false,
+        "isReserved": null,
+        "issues": [
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-4"
+          },
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-3"
+          }
+        ]
+      },
+      {
+        "id": "UT_RAILDINNER-UT20270212-202702142030",
+        "active": false,
+        "dateTime": "2027-02-14T20:30:00",
+        "stockLevelStatus": "inStock",
+        "stockLevel": 9999,
+        "pricing": {
+          "currencyIso": "USD",
+          "adultPromotionalPrice": 107.99,
+          "childPromotionalPrice": 44.99,
+          "infantPromotionalPrice": null,
+          "adultShipboardPrice": 120.0,
+          "childShipboardPrice": 50.0,
+          "infantShipboardPrice": 0.0,
+          "adultShipboardTax": null,
+          "childShipboardTax": null,
+          "infantShipboardTax": null,
+          "adultDiscountAmount": 12.01,
+          "childDiscountAmount": 5.01,
+          "infantDiscountAmount": null,
+          "adultDiscountPercentage": 10,
+          "childDiscountPercentage": 10,
+          "infantDiscountPercentage": null,
+          "couponCode": null,
+          "priceRollupType": "TAX_ROLLUP"
+        },
+        "isInCart": false,
+        "isReserved": null,
+        "issues": []
+      },
+      {
+        "id": "UT_RAILDINNER-UT20270212-202702142040",
+        "active": false,
+        "dateTime": "2027-02-14T20:40:00",
+        "stockLevelStatus": "inStock",
+        "stockLevel": 9999,
+        "pricing": {
+          "currencyIso": "USD",
+          "adultPromotionalPrice": 107.99,
+          "childPromotionalPrice": 44.99,
+          "infantPromotionalPrice": null,
+          "adultShipboardPrice": 120.0,
+          "childShipboardPrice": 50.0,
+          "infantShipboardPrice": 0.0,
+          "adultShipboardTax": null,
+          "childShipboardTax": null,
+          "infantShipboardTax": null,
+          "adultDiscountAmount": 12.01,
+          "childDiscountAmount": 5.01,
+          "infantDiscountAmount": null,
+          "adultDiscountPercentage": 10,
+          "childDiscountPercentage": 10,
+          "infantDiscountPercentage": null,
+          "couponCode": null,
+          "priceRollupType": "TAX_ROLLUP"
+        },
+        "isInCart": false,
+        "isReserved": null,
+        "issues": []
+      }
+    ]
+  }
+}

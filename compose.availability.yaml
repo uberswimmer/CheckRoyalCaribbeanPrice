@@ -1,0 +1,26 @@
+services:
+  royal-availability:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: royal-availability:0.1.0-test
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ:-America/New_York}
+      # Set this to the schedule used by your existing checker.
+      CRON_SCHEDULE: ${CRON_SCHEDULE:-0 7,19 * * *}
+    volumes:
+      - type: bind
+        source: ./config.availability.yaml
+        target: /app/config.yaml
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./data
+        target: /app/data
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"

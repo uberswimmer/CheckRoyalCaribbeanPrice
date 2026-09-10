@@ -1,0 +1,388 @@
+{
+  "status": 200,
+  "error": null,
+  "warnings": null,
+  "payload": {
+    "productCode": "Y7JH",
+    "categoryId": "pt_show",
+    "salesUnit": "PER_SEAT",
+    "guestLimit": null,
+    "diningType": null,
+    "guests": [
+      {
+        "id": "guest-1",
+        "reservationId": "booking-2",
+        "remainingBookableQty": 0,
+        "issues": [
+          {
+            "type": "BOOKING_LIMIT_REACHED",
+            "guestId": "guest-1"
+          },
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-1",
+            "conflict": {
+              "offering": {
+                "id": "Y7JH-IC20261010-B"
+              }
+            }
+          },
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-1",
+            "conflict": {
+              "offering": {
+                "id": "Y7JH-IC20261010-E"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "guest-2",
+        "reservationId": "booking-2",
+        "remainingBookableQty": 0,
+        "issues": [
+          {
+            "type": "BOOKING_LIMIT_REACHED",
+            "guestId": "guest-2"
+          },
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-2",
+            "conflict": {
+              "offering": {
+                "id": "Y7JH-IC20261010-B"
+              }
+            }
+          },
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-2",
+            "conflict": {
+              "offering": {
+                "id": "Y7JH-IC20261010-E"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "guest-3",
+        "reservationId": "booking-6",
+        "remainingBookableQty": 0,
+        "issues": [
+          {
+            "type": "BOOKING_LIMIT_REACHED",
+            "guestId": "guest-3"
+          },
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-3",
+            "conflict": {
+              "offering": {
+                "id": "Y7JH-IC20261010-B"
+              }
+            }
+          },
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-3",
+            "conflict": {
+              "offering": {
+                "id": "Y7JH-IC20261010-E"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "guest-4",
+        "reservationId": "booking-6",
+        "remainingBookableQty": 0,
+        "issues": [
+          {
+            "type": "BOOKING_LIMIT_REACHED",
+            "guestId": "guest-4"
+          },
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-4",
+            "conflict": {
+              "offering": {
+                "id": "Y7JH-IC20261010-B"
+              }
+            }
+          },
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-4",
+            "conflict": {
+              "offering": {
+                "id": "Y7JH-IC20261010-E"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "guest-5",
+        "reservationId": "booking-6",
+        "remainingBookableQty": 0,
+        "issues": [
+          {
+            "type": "BOOKING_LIMIT_REACHED",
+            "guestId": "guest-5"
+          },
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-5",
+            "conflict": {
+              "offering": {
+                "id": "Y7JH-IC20261010-B"
+              }
+            }
+          },
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-5",
+            "conflict": {
+              "offering": {
+                "id": "Y7JH-IC20261010-E"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "guest-6",
+        "reservationId": "booking-6",
+        "remainingBookableQty": 0,
+        "issues": [
+          {
+            "type": "BOOKING_LIMIT_REACHED",
+            "guestId": "guest-6"
+          },
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-6",
+            "conflict": {
+              "offering": {
+                "id": "Y7JH-IC20261010-B"
+              }
+            }
+          },
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-6",
+            "conflict": {
+              "offering": {
+                "id": "Y7JH-IC20261010-E"
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "offerings": [
+      {
+        "id": "Y7JH-IC20261010-B",
+        "active": false,
+        "dateTime": "2026-10-11T18:30:00",
+        "stockLevelStatus": "inStock",
+        "stockLevel": 188,
+        "pricing": {
+          "currencyIso": "USD",
+          "adultPromotionalPrice": null,
+          "childPromotionalPrice": null,
+          "infantPromotionalPrice": null,
+          "adultShipboardPrice": 0,
+          "childShipboardPrice": 0,
+          "infantShipboardPrice": 0,
+          "adultShipboardTax": null,
+          "childShipboardTax": null,
+          "infantShipboardTax": null,
+          "adultDiscountAmount": null,
+          "childDiscountAmount": null,
+          "infantDiscountAmount": null,
+          "adultDiscountPercentage": 0,
+          "childDiscountPercentage": 0,
+          "infantDiscountPercentage": 0,
+          "couponCode": null,
+          "priceRollupType": "NO_ROLLUP"
+        },
+        "isInCart": false,
+        "isReserved": null,
+        "issues": [
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-3"
+          },
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-1"
+          },
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-2"
+          }
+        ]
+      },
+      {
+        "id": "Y7JH-IC20261010-A",
+        "active": false,
+        "dateTime": "2026-10-11T20:45:00",
+        "stockLevelStatus": "inStock",
+        "stockLevel": 66,
+        "pricing": {
+          "currencyIso": "USD",
+          "adultPromotionalPrice": null,
+          "childPromotionalPrice": null,
+          "infantPromotionalPrice": null,
+          "adultShipboardPrice": 0,
+          "childShipboardPrice": 0,
+          "infantShipboardPrice": 0,
+          "adultShipboardTax": null,
+          "childShipboardTax": null,
+          "infantShipboardTax": null,
+          "adultDiscountAmount": 0,
+          "childDiscountAmount": 0,
+          "infantDiscountAmount": 0,
+          "adultDiscountPercentage": 0,
+          "childDiscountPercentage": 0,
+          "infantDiscountPercentage": 0,
+          "couponCode": null,
+          "priceRollupType": "NO_ROLLUP"
+        },
+        "isInCart": false,
+        "isReserved": null,
+        "issues": []
+      },
+      {
+        "id": "Y7JH-IC20261010-E",
+        "active": false,
+        "dateTime": "2026-10-13T20:15:00",
+        "stockLevelStatus": "inStock",
+        "stockLevel": 1,
+        "pricing": {
+          "currencyIso": "USD",
+          "adultPromotionalPrice": null,
+          "childPromotionalPrice": null,
+          "infantPromotionalPrice": null,
+          "adultShipboardPrice": 0,
+          "childShipboardPrice": 0,
+          "infantShipboardPrice": 0,
+          "adultShipboardTax": null,
+          "childShipboardTax": null,
+          "infantShipboardTax": null,
+          "adultDiscountAmount": 0,
+          "childDiscountAmount": 0,
+          "infantDiscountAmount": 0,
+          "adultDiscountPercentage": 0,
+          "childDiscountPercentage": 0,
+          "infantDiscountPercentage": 0,
+          "couponCode": null,
+          "priceRollupType": "NO_ROLLUP"
+        },
+        "isInCart": false,
+        "isReserved": null,
+        "issues": [
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-1"
+          }
+        ]
+      },
+      {
+        "id": "Y7JH-IC20261010-D",
+        "active": false,
+        "dateTime": "2026-10-13T22:30:00",
+        "stockLevelStatus": "inStock",
+        "stockLevel": 386,
+        "pricing": {
+          "currencyIso": "USD",
+          "adultPromotionalPrice": null,
+          "childPromotionalPrice": null,
+          "infantPromotionalPrice": null,
+          "adultShipboardPrice": 0,
+          "childShipboardPrice": 0,
+          "infantShipboardPrice": 0,
+          "adultShipboardTax": null,
+          "childShipboardTax": null,
+          "infantShipboardTax": null,
+          "adultDiscountAmount": 0,
+          "childDiscountAmount": 0,
+          "infantDiscountAmount": 0,
+          "adultDiscountPercentage": 0,
+          "childDiscountPercentage": 0,
+          "infantDiscountPercentage": 0,
+          "couponCode": null,
+          "priceRollupType": "NO_ROLLUP"
+        },
+        "isInCart": false,
+        "isReserved": null,
+        "issues": []
+      },
+      {
+        "id": "Y7JH-IC20261010-F",
+        "active": false,
+        "dateTime": "2026-10-16T19:15:00",
+        "stockLevelStatus": "inStock",
+        "stockLevel": 384,
+        "pricing": {
+          "currencyIso": "USD",
+          "adultPromotionalPrice": null,
+          "childPromotionalPrice": null,
+          "infantPromotionalPrice": null,
+          "adultShipboardPrice": 0,
+          "childShipboardPrice": 0,
+          "infantShipboardPrice": 0,
+          "adultShipboardTax": null,
+          "childShipboardTax": null,
+          "infantShipboardTax": null,
+          "adultDiscountAmount": 0,
+          "childDiscountAmount": 0,
+          "infantDiscountAmount": 0,
+          "adultDiscountPercentage": 0,
+          "childDiscountPercentage": 0,
+          "infantDiscountPercentage": 0,
+          "couponCode": null,
+          "priceRollupType": "NO_ROLLUP"
+        },
+        "isInCart": false,
+        "isReserved": null,
+        "issues": []
+      },
+      {
+        "id": "Y7JH-IC20261010-C",
+        "active": false,
+        "dateTime": "2026-10-16T21:30:00",
+        "stockLevelStatus": "inStock",
+        "stockLevel": 504,
+        "pricing": {
+          "currencyIso": "USD",
+          "adultPromotionalPrice": null,
+          "childPromotionalPrice": null,
+          "infantPromotionalPrice": null,
+          "adultShipboardPrice": 0,
+          "childShipboardPrice": 0,
+          "infantShipboardPrice": 0,
+          "adultShipboardTax": null,
+          "childShipboardTax": null,
+          "infantShipboardTax": null,
+          "adultDiscountAmount": 0,
+          "childDiscountAmount": 0,
+          "infantDiscountAmount": 0,
+          "adultDiscountPercentage": 0,
+          "childDiscountPercentage": 0,
+          "infantDiscountPercentage": 0,
+          "couponCode": null,
+          "priceRollupType": "NO_ROLLUP"
+        },
+        "isInCart": false,
+        "isReserved": null,
+        "issues": []
+      }
+    ]
+  }
+}

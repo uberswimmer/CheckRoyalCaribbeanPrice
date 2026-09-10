@@ -1,4 +1,11 @@
 config.yaml
+config.availability.yaml
+.env
+.venv/
+data/
+*.sqlite3*
+.pytest_cache/
+.coverage
 __pycache__
 config-c.yaml
 config-r.yaml
