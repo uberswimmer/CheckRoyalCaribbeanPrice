@@ -88,8 +88,8 @@ the production functions, then verifies one alert across two runs.
    destination. Preserve `data/availability.sqlite3` when replacing the container.
 
 The build workspace has no Docker daemon. Remote validation is now available:
-https://github.com/uberswimmer/CheckRoyalCaribbeanPrice/actions/runs/34511737060
-The `test` job passed the suite, native image build, both Compose configurations,
+the repository's Actions tab, `Availability build and publish` workflow.
+The `test` job passed the suite, native image build, the local-build Compose configuration,
 and `check --validate-config` inside the image. This does not verify a live login,
 API call, notification, cron execution, or ARM64 runtime behavior.
 

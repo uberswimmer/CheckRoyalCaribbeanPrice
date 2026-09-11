@@ -14,33 +14,33 @@ availability:
   dryRun: true
   stateFile: /app/data/availability.sqlite3
   watches:
-    - id: icon-entertainment
-      name: "Icon entertainment"
-      reservation: "YOUR_ICON_BOOKING_ID"
+    - id: entertainment
+      name: "Entertainment reservations"
+      reservation: "YOUR_ENTERTAINMENT_BOOKING_ID"
       category: show
       # Omit product to discover every show, including newly released shows.
       mode: release
       notifyOnReopen: false
 
-    - id: utopia-royal-railway
-      name: "Utopia Royal Railway"
-      reservation: "YOUR_UTOPIA_BOOKING_ID"
+    - id: specialty-dining
+      name: "Specialty dining reservations"
+      reservation: "YOUR_DINING_BOOKING_ID"
       category: dining
-      product: UT_RAILDINNER
+      product: YOUR_DINING_PRODUCT_CODE
       mode: release
       notifyOnReopen: false
 
     # Optional: enable a watch that also considers the configured party.
     # With guests omitted, the party is passengersInStateroom for this booking.
     # Existing reservations and limits can prevent party-mode alerts.
-    # - id: icon-headliner-party
+    # - id: show-party
     #   name: "Headliner for our party"
-    #   reservation: "YOUR_ICON_BOOKING_ID"
+    #   reservation: "YOUR_ENTERTAINMENT_BOOKING_ID"
     #   category: show
-    #   product: Y7QG
+    #   product: YOUR_SHOW_PRODUCT_CODE
     #   mode: party
     #   guests:
     #     - id: "GUEST_ID_1"
-    #       reservationId: "YOUR_ICON_BOOKING_ID"
+    #       reservationId: "YOUR_ENTERTAINMENT_BOOKING_ID"
     #     - id: "GUEST_ID_2"
     #       reservationId: "LINKED_BOOKING_ID"

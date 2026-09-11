@@ -9,8 +9,8 @@ to availability-only operation, so it does not duplicate cabin/add-on price aler
 It uses the existing upstream Dockerfile and scheduler. No additional polling loop
 or entertainment-specific schedule is added.
 
-For GitHub-published images and your existing Watchtower, use
-[GITHUB-DEPLOYMENT.md](GITHUB-DEPLOYMENT.md) and `compose.watchtower.yaml`.
+For GitHub-published images and an existing Docker Compose or Portainer deployment,
+see [GITHUB-DEPLOYMENT.md](GITHUB-DEPLOYMENT.md).
 The local-build instructions below remain available.
 
 ## Set up your separate container
@@ -30,7 +30,7 @@ Edit `config.availability.yaml`:
    checker. Keep them only in this local configuration.
 2. Replace the booking placeholders. Remove or disable watches you do not need.
    A watch targets one booking. Add another watch with a distinct `id` for another
-   sailing, including Wonder if desired.
+   sailing.
 3. Keep `availability.only: true` and `dryRun: true` for the first run.
 4. Set the Compose `CRON_SCHEDULE` and `TZ` to match your existing checker. The sample
    defaults to 7 AM and 7 PM in America/New_York; your actual schedule was not provided.
@@ -189,8 +189,8 @@ python -m pytest unittests/ -q
 `unittests/fixtures/availability` contains minimal anonymized fixture reductions.
 The original uploaded captures and credentials are not included. The new GitHub
 Actions workflow runs all tests, builds the Docker image, and exercises configuration
-validation inside the image. On the `uberswimmer` fork, successful `main` builds
-also publish the availability image to GHCR. The source is now in your fork;
+validation inside the image. Successful `main` builds
+also publish the availability image to GHCR. The publishing workflow derives the image owner from the repository;
 see `GITHUB-DEPLOYMENT.md` for registry access and first-run instructions.
 
 See `AVAILABILITY-REVIEW.md` for completed review, tests, and remaining validation.

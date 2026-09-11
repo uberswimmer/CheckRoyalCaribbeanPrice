@@ -19,7 +19,7 @@
             "guestId": "guest-1",
             "conflict": {
               "offering": {
-                "id": "Y7QG-IC20261010-A"
+                "id": "example-offering-013"
               }
             }
           }
@@ -35,7 +35,7 @@
             "guestId": "guest-2",
             "conflict": {
               "offering": {
-                "id": "Y7QG-IC20261010-A"
+                "id": "example-offering-013"
               }
             }
           }
@@ -51,7 +51,7 @@
             "guestId": "guest-3",
             "conflict": {
               "offering": {
-                "id": "Y7QG-IC20261010-A"
+                "id": "example-offering-013"
               }
             }
           }
@@ -67,7 +67,7 @@
             "guestId": "guest-4",
             "conflict": {
               "offering": {
-                "id": "Y7QG-IC20261010-A"
+                "id": "example-offering-013"
               }
             }
           }
@@ -83,7 +83,7 @@
             "guestId": "guest-5",
             "conflict": {
               "offering": {
-                "id": "Y7QG-IC20261010-A"
+                "id": "example-offering-013"
               }
             }
           }
@@ -99,7 +99,7 @@
             "guestId": "guest-6",
             "conflict": {
               "offering": {
-                "id": "Y7QG-IC20261010-A"
+                "id": "example-offering-013"
               }
             }
           }
@@ -108,9 +108,9 @@
     ],
     "offerings": [
       {
-        "id": "Y7QG-IC20261010-A",
+        "id": "example-offering-013",
         "active": false,
-        "dateTime": "2026-10-10T19:15:00",
+        "dateTime": "2098-04-06T19:15:00",
         "stockLevelStatus": "inStock",
         "stockLevel": 74,
         "pricing": {
@@ -143,9 +143,9 @@
         ]
       },
       {
-        "id": "Y7QG-IC20261010-B",
+        "id": "example-offering-014",
         "active": false,
-        "dateTime": "2026-10-10T21:30:00",
+        "dateTime": "2098-04-06T21:30:00",
         "stockLevelStatus": "inStock",
         "stockLevel": 87,
         "pricing": {

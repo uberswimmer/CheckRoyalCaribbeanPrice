@@ -19,7 +19,7 @@
             "guestId": "guest-1",
             "conflict": {
               "offering": {
-                "id": "UT_RAILDINNER-UT20270212-202702121800"
+                "id": "example-offering-001"
               }
             }
           },
@@ -28,7 +28,7 @@
             "guestId": "guest-1",
             "conflict": {
               "offering": {
-                "id": "UT_RAILDINNER-UT20270212-202702121810"
+                "id": "example-offering-002"
               }
             }
           },
@@ -37,7 +37,7 @@
             "guestId": "guest-1",
             "conflict": {
               "offering": {
-                "id": "UT_RAILDINNER-UT20270212-202702131800"
+                "id": "example-offering-003"
               }
             }
           },
@@ -46,7 +46,7 @@
             "guestId": "guest-1",
             "conflict": {
               "offering": {
-                "id": "UT_RAILDINNER-UT20270212-202702131810"
+                "id": "example-offering-004"
               }
             }
           },
@@ -55,7 +55,7 @@
             "guestId": "guest-1",
             "conflict": {
               "offering": {
-                "id": "UT_RAILDINNER-UT20270212-202702132030"
+                "id": "example-offering-005"
               }
             }
           },
@@ -64,7 +64,7 @@
             "guestId": "guest-1",
             "conflict": {
               "offering": {
-                "id": "UT_RAILDINNER-UT20270212-202702132040"
+                "id": "example-offering-006"
               }
             }
           },
@@ -73,7 +73,7 @@
             "guestId": "guest-1",
             "conflict": {
               "offering": {
-                "id": "UT_RAILDINNER-UT20270212-202702141800"
+                "id": "example-offering-007"
               }
             }
           },
@@ -82,7 +82,7 @@
             "guestId": "guest-1",
             "conflict": {
               "offering": {
-                "id": "UT_RAILDINNER-UT20270212-202702141810"
+                "id": "example-offering-008"
               }
             }
           }
@@ -98,7 +98,7 @@
             "guestId": "guest-2",
             "conflict": {
               "offering": {
-                "id": "UT_RAILDINNER-UT20270212-202702121800"
+                "id": "example-offering-001"
               }
             }
           },
@@ -107,7 +107,7 @@
             "guestId": "guest-2",
             "conflict": {
               "offering": {
-                "id": "UT_RAILDINNER-UT20270212-202702121810"
+                "id": "example-offering-002"
               }
             }
           },
@@ -116,7 +116,7 @@
             "guestId": "guest-2",
             "conflict": {
               "offering": {
-                "id": "UT_RAILDINNER-UT20270212-202702131800"
+                "id": "example-offering-003"
               }
             }
           },
@@ -125,7 +125,7 @@
             "guestId": "guest-2",
             "conflict": {
               "offering": {
-                "id": "UT_RAILDINNER-UT20270212-202702131810"
+                "id": "example-offering-004"
               }
             }
           },
@@ -134,7 +134,7 @@
             "guestId": "guest-2",
             "conflict": {
               "offering": {
-                "id": "UT_RAILDINNER-UT20270212-202702132030"
+                "id": "example-offering-005"
               }
             }
           },
@@ -143,7 +143,7 @@
             "guestId": "guest-2",
             "conflict": {
               "offering": {
-                "id": "UT_RAILDINNER-UT20270212-202702132040"
+                "id": "example-offering-006"
               }
             }
           },
@@ -152,7 +152,7 @@
             "guestId": "guest-2",
             "conflict": {
               "offering": {
-                "id": "UT_RAILDINNER-UT20270212-202702141800"
+                "id": "example-offering-007"
               }
             }
           },
@@ -161,7 +161,7 @@
             "guestId": "guest-2",
             "conflict": {
               "offering": {
-                "id": "UT_RAILDINNER-UT20270212-202702141810"
+                "id": "example-offering-008"
               }
             }
           }
@@ -177,7 +177,7 @@
             "guestId": "guest-3",
             "conflict": {
               "offering": {
-                "id": "UT_RAILDINNER-UT20270212-202702121800"
+                "id": "example-offering-001"
               }
             }
           },
@@ -186,7 +186,7 @@
             "guestId": "guest-3",
             "conflict": {
               "offering": {
-                "id": "UT_RAILDINNER-UT20270212-202702121810"
+                "id": "example-offering-002"
               }
             }
           },
@@ -195,7 +195,7 @@
             "guestId": "guest-3",
             "conflict": {
               "offering": {
-                "id": "UT_RAILDINNER-UT20270212-202702131800"
+                "id": "example-offering-003"
               }
             }
           },
@@ -204,7 +204,7 @@
             "guestId": "guest-3",
             "conflict": {
               "offering": {
-                "id": "UT_RAILDINNER-UT20270212-202702131810"
+                "id": "example-offering-004"
               }
             }
           },
@@ -213,7 +213,7 @@
             "guestId": "guest-3",
             "conflict": {
               "offering": {
-                "id": "UT_RAILDINNER-UT20270212-202702132030"
+                "id": "example-offering-005"
               }
             }
           },
@@ -222,7 +222,7 @@
             "guestId": "guest-3",
             "conflict": {
               "offering": {
-                "id": "UT_RAILDINNER-UT20270212-202702132040"
+                "id": "example-offering-006"
               }
             }
           },
@@ -231,7 +231,7 @@
             "guestId": "guest-3",
             "conflict": {
               "offering": {
-                "id": "UT_RAILDINNER-UT20270212-202702141800"
+                "id": "example-offering-007"
               }
             }
           },
@@ -240,7 +240,7 @@
             "guestId": "guest-3",
             "conflict": {
               "offering": {
-                "id": "UT_RAILDINNER-UT20270212-202702141810"
+                "id": "example-offering-008"
               }
             }
           }
@@ -256,7 +256,7 @@
             "guestId": "guest-4",
             "conflict": {
               "offering": {
-                "id": "UT_RAILDINNER-UT20270212-202702121800"
+                "id": "example-offering-001"
               }
             }
           },
@@ -265,7 +265,7 @@
             "guestId": "guest-4",
             "conflict": {
               "offering": {
-                "id": "UT_RAILDINNER-UT20270212-202702121810"
+                "id": "example-offering-002"
               }
             }
           },
@@ -274,7 +274,7 @@
             "guestId": "guest-4",
             "conflict": {
               "offering": {
-                "id": "UT_RAILDINNER-UT20270212-202702131800"
+                "id": "example-offering-003"
               }
             }
           },
@@ -283,7 +283,7 @@
             "guestId": "guest-4",
             "conflict": {
               "offering": {
-                "id": "UT_RAILDINNER-UT20270212-202702131810"
+                "id": "example-offering-004"
               }
             }
           },
@@ -292,7 +292,7 @@
             "guestId": "guest-4",
             "conflict": {
               "offering": {
-                "id": "UT_RAILDINNER-UT20270212-202702132030"
+                "id": "example-offering-005"
               }
             }
           },
@@ -301,7 +301,7 @@
             "guestId": "guest-4",
             "conflict": {
               "offering": {
-                "id": "UT_RAILDINNER-UT20270212-202702132040"
+                "id": "example-offering-006"
               }
             }
           },
@@ -310,7 +310,7 @@
             "guestId": "guest-4",
             "conflict": {
               "offering": {
-                "id": "UT_RAILDINNER-UT20270212-202702141800"
+                "id": "example-offering-007"
               }
             }
           },
@@ -319,7 +319,7 @@
             "guestId": "guest-4",
             "conflict": {
               "offering": {
-                "id": "UT_RAILDINNER-UT20270212-202702141810"
+                "id": "example-offering-008"
               }
             }
           }
@@ -335,7 +335,7 @@
             "guestId": "guest-5",
             "conflict": {
               "offering": {
-                "id": "UT_RAILDINNER-UT20270212-202702121800"
+                "id": "example-offering-001"
               }
             }
           },
@@ -344,7 +344,7 @@
             "guestId": "guest-5",
             "conflict": {
               "offering": {
-                "id": "UT_RAILDINNER-UT20270212-202702121810"
+                "id": "example-offering-002"
               }
             }
           },
@@ -353,7 +353,7 @@
             "guestId": "guest-5",
             "conflict": {
               "offering": {
-                "id": "UT_RAILDINNER-UT20270212-202702131800"
+                "id": "example-offering-003"
               }
             }
           },
@@ -362,7 +362,7 @@
             "guestId": "guest-5",
             "conflict": {
               "offering": {
-                "id": "UT_RAILDINNER-UT20270212-202702131810"
+                "id": "example-offering-004"
               }
             }
           },
@@ -371,7 +371,7 @@
             "guestId": "guest-5",
             "conflict": {
               "offering": {
-                "id": "UT_RAILDINNER-UT20270212-202702132030"
+                "id": "example-offering-005"
               }
             }
           },
@@ -380,7 +380,7 @@
             "guestId": "guest-5",
             "conflict": {
               "offering": {
-                "id": "UT_RAILDINNER-UT20270212-202702132040"
+                "id": "example-offering-006"
               }
             }
           },
@@ -389,7 +389,7 @@
             "guestId": "guest-5",
             "conflict": {
               "offering": {
-                "id": "UT_RAILDINNER-UT20270212-202702141800"
+                "id": "example-offering-007"
               }
             }
           },
@@ -398,7 +398,7 @@
             "guestId": "guest-5",
             "conflict": {
               "offering": {
-                "id": "UT_RAILDINNER-UT20270212-202702141810"
+                "id": "example-offering-008"
               }
             }
           }
@@ -414,7 +414,7 @@
             "guestId": "guest-6",
             "conflict": {
               "offering": {
-                "id": "UT_RAILDINNER-UT20270212-202702121800"
+                "id": "example-offering-001"
               }
             }
           },
@@ -423,7 +423,7 @@
             "guestId": "guest-6",
             "conflict": {
               "offering": {
-                "id": "UT_RAILDINNER-UT20270212-202702121810"
+                "id": "example-offering-002"
               }
             }
           },
@@ -432,7 +432,7 @@
             "guestId": "guest-6",
             "conflict": {
               "offering": {
-                "id": "UT_RAILDINNER-UT20270212-202702131800"
+                "id": "example-offering-003"
               }
             }
           },
@@ -441,7 +441,7 @@
             "guestId": "guest-6",
             "conflict": {
               "offering": {
-                "id": "UT_RAILDINNER-UT20270212-202702131810"
+                "id": "example-offering-004"
               }
             }
           },
@@ -450,7 +450,7 @@
             "guestId": "guest-6",
             "conflict": {
               "offering": {
-                "id": "UT_RAILDINNER-UT20270212-202702132030"
+                "id": "example-offering-005"
               }
             }
           },
@@ -459,7 +459,7 @@
             "guestId": "guest-6",
             "conflict": {
               "offering": {
-                "id": "UT_RAILDINNER-UT20270212-202702132040"
+                "id": "example-offering-006"
               }
             }
           },
@@ -468,7 +468,7 @@
             "guestId": "guest-6",
             "conflict": {
               "offering": {
-                "id": "UT_RAILDINNER-UT20270212-202702141800"
+                "id": "example-offering-007"
               }
             }
           },
@@ -477,7 +477,7 @@
             "guestId": "guest-6",
             "conflict": {
               "offering": {
-                "id": "UT_RAILDINNER-UT20270212-202702141810"
+                "id": "example-offering-008"
               }
             }
           }
@@ -493,7 +493,7 @@
             "guestId": "guest-7",
             "conflict": {
               "offering": {
-                "id": "UT_RAILDINNER-UT20270212-202702121800"
+                "id": "example-offering-001"
               }
             }
           },
@@ -502,7 +502,7 @@
             "guestId": "guest-7",
             "conflict": {
               "offering": {
-                "id": "UT_RAILDINNER-UT20270212-202702121810"
+                "id": "example-offering-002"
               }
             }
           },
@@ -511,7 +511,7 @@
             "guestId": "guest-7",
             "conflict": {
               "offering": {
-                "id": "UT_RAILDINNER-UT20270212-202702131800"
+                "id": "example-offering-003"
               }
             }
           },
@@ -520,7 +520,7 @@
             "guestId": "guest-7",
             "conflict": {
               "offering": {
-                "id": "UT_RAILDINNER-UT20270212-202702131810"
+                "id": "example-offering-004"
               }
             }
           },
@@ -529,7 +529,7 @@
             "guestId": "guest-7",
             "conflict": {
               "offering": {
-                "id": "UT_RAILDINNER-UT20270212-202702132030"
+                "id": "example-offering-005"
               }
             }
           },
@@ -538,7 +538,7 @@
             "guestId": "guest-7",
             "conflict": {
               "offering": {
-                "id": "UT_RAILDINNER-UT20270212-202702132040"
+                "id": "example-offering-006"
               }
             }
           },
@@ -547,7 +547,7 @@
             "guestId": "guest-7",
             "conflict": {
               "offering": {
-                "id": "UT_RAILDINNER-UT20270212-202702141800"
+                "id": "example-offering-007"
               }
             }
           },
@@ -556,7 +556,7 @@
             "guestId": "guest-7",
             "conflict": {
               "offering": {
-                "id": "UT_RAILDINNER-UT20270212-202702141810"
+                "id": "example-offering-008"
               }
             }
           }
@@ -565,9 +565,9 @@
     ],
     "offerings": [
       {
-        "id": "UT_RAILDINNER-UT20270212-202702121800",
+        "id": "example-offering-001",
         "active": false,
-        "dateTime": "2027-02-12T18:00:00",
+        "dateTime": "2098-07-02T18:00:00",
         "stockLevelStatus": "inStock",
         "stockLevel": 9999,
         "pricing": {
@@ -604,9 +604,9 @@
         ]
       },
       {
-        "id": "UT_RAILDINNER-UT20270212-202702121810",
+        "id": "example-offering-002",
         "active": false,
-        "dateTime": "2027-02-12T18:10:00",
+        "dateTime": "2098-07-02T18:10:00",
         "stockLevelStatus": "inStock",
         "stockLevel": 9999,
         "pricing": {
@@ -643,9 +643,9 @@
         ]
       },
       {
-        "id": "UT_RAILDINNER-UT20270212-202702122030",
+        "id": "example-offering-009",
         "active": false,
-        "dateTime": "2027-02-12T20:30:00",
+        "dateTime": "2098-07-02T20:30:00",
         "stockLevelStatus": "inStock",
         "stockLevel": 9999,
         "pricing": {
@@ -673,9 +673,9 @@
         "issues": []
       },
       {
-        "id": "UT_RAILDINNER-UT20270212-202702122040",
+        "id": "example-offering-010",
         "active": false,
-        "dateTime": "2027-02-12T20:40:00",
+        "dateTime": "2098-07-02T20:40:00",
         "stockLevelStatus": "inStock",
         "stockLevel": 9999,
         "pricing": {
@@ -703,9 +703,9 @@
         "issues": []
       },
       {
-        "id": "UT_RAILDINNER-UT20270212-202702131800",
+        "id": "example-offering-003",
         "active": false,
-        "dateTime": "2027-02-13T18:00:00",
+        "dateTime": "2098-07-03T18:00:00",
         "stockLevelStatus": "inStock",
         "stockLevel": 9999,
         "pricing": {
@@ -742,9 +742,9 @@
         ]
       },
       {
-        "id": "UT_RAILDINNER-UT20270212-202702131810",
+        "id": "example-offering-004",
         "active": false,
-        "dateTime": "2027-02-13T18:10:00",
+        "dateTime": "2098-07-03T18:10:00",
         "stockLevelStatus": "inStock",
         "stockLevel": 9999,
         "pricing": {
@@ -781,9 +781,9 @@
         ]
       },
       {
-        "id": "UT_RAILDINNER-UT20270212-202702132030",
+        "id": "example-offering-005",
         "active": false,
-        "dateTime": "2027-02-13T20:30:00",
+        "dateTime": "2098-07-03T20:30:00",
         "stockLevelStatus": "inStock",
         "stockLevel": 9999,
         "pricing": {
@@ -820,9 +820,9 @@
         ]
       },
       {
-        "id": "UT_RAILDINNER-UT20270212-202702132040",
+        "id": "example-offering-006",
         "active": false,
-        "dateTime": "2027-02-13T20:40:00",
+        "dateTime": "2098-07-03T20:40:00",
         "stockLevelStatus": "inStock",
         "stockLevel": 9999,
         "pricing": {
@@ -859,9 +859,9 @@
         ]
       },
       {
-        "id": "UT_RAILDINNER-UT20270212-202702141800",
+        "id": "example-offering-007",
         "active": false,
-        "dateTime": "2027-02-14T18:00:00",
+        "dateTime": "2098-07-04T18:00:00",
         "stockLevelStatus": "inStock",
         "stockLevel": 9999,
         "pricing": {
@@ -898,9 +898,9 @@
         ]
       },
       {
-        "id": "UT_RAILDINNER-UT20270212-202702141810",
+        "id": "example-offering-008",
         "active": false,
-        "dateTime": "2027-02-14T18:10:00",
+        "dateTime": "2098-07-04T18:10:00",
         "stockLevelStatus": "inStock",
         "stockLevel": 9999,
         "pricing": {
@@ -937,9 +937,9 @@
         ]
       },
       {
-        "id": "UT_RAILDINNER-UT20270212-202702142030",
+        "id": "example-offering-011",
         "active": false,
-        "dateTime": "2027-02-14T20:30:00",
+        "dateTime": "2098-07-04T20:30:00",
         "stockLevelStatus": "inStock",
         "stockLevel": 9999,
         "pricing": {
@@ -967,9 +967,9 @@
         "issues": []
       },
       {
-        "id": "UT_RAILDINNER-UT20270212-202702142040",
+        "id": "example-offering-012",
         "active": false,
-        "dateTime": "2027-02-14T20:40:00",
+        "dateTime": "2098-07-04T20:40:00",
         "stockLevelStatus": "inStock",
         "stockLevel": 9999,
         "pricing": {

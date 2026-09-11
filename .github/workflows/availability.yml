@@ -33,12 +33,11 @@ jobs:
               yaml.safe_dump(config, f)
           PY
           docker compose -f compose.availability.yaml config --quiet
-          docker compose -f compose.watchtower.yaml config --quiet
           docker run --rm -v "$PWD/config.availability.yaml:/app/config.yaml:ro" royal-availability:ci check --validate-config
   publish:
     needs: test
-    # PRs and development branches never change the image Watchtower follows.
-    if: github.repository_owner == 'uberswimmer' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    # PRs and development branches never change the published image.
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -52,6 +51,11 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Set image name
+        id: registry
+        env:
+          REPOSITORY_OWNER: ${{ github.repository_owner }}
+        run: echo "image=ghcr.io/${REPOSITORY_OWNER,,}/royalcaribbean-availability" >> "$GITHUB_OUTPUT"
       - name: Publish availability image
         id: image
         uses: docker/build-push-action@v6
@@ -60,8 +64,8 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            ghcr.io/uberswimmer/royalcaribbean-availability:latest
-            ghcr.io/uberswimmer/royalcaribbean-availability:sha-${{ github.sha }}
+            ${{ steps.registry.outputs.image }}:latest
+            ${{ steps.registry.outputs.image }}:sha-${{ github.sha }}
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
@@ -70,6 +74,7 @@ jobs:
       - name: Record published image
         env:
           IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
+          IMAGE_NAME: ${{ steps.registry.outputs.image }}
         run: |
-          echo 'Image: ghcr.io/uberswimmer/royalcaribbean-availability:latest' >> "$GITHUB_STEP_SUMMARY"
+          echo "Image: $IMAGE_NAME:latest" >> "$GITHUB_STEP_SUMMARY"
           echo "Digest: $IMAGE_DIGEST" >> "$GITHUB_STEP_SUMMARY"

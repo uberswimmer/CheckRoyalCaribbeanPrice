@@ -23,7 +23,7 @@
             "guestId": "guest-1",
             "conflict": {
               "offering": {
-                "id": "Y7JH-IC20261010-B"
+                "id": "example-offering-015"
               }
             }
           },
@@ -32,7 +32,7 @@
             "guestId": "guest-1",
             "conflict": {
               "offering": {
-                "id": "Y7JH-IC20261010-E"
+                "id": "example-offering-016"
               }
             }
           }
@@ -52,7 +52,7 @@
             "guestId": "guest-2",
             "conflict": {
               "offering": {
-                "id": "Y7JH-IC20261010-B"
+                "id": "example-offering-015"
               }
             }
           },
@@ -61,7 +61,7 @@
             "guestId": "guest-2",
             "conflict": {
               "offering": {
-                "id": "Y7JH-IC20261010-E"
+                "id": "example-offering-016"
               }
             }
           }
@@ -81,7 +81,7 @@
             "guestId": "guest-3",
             "conflict": {
               "offering": {
-                "id": "Y7JH-IC20261010-B"
+                "id": "example-offering-015"
               }
             }
           },
@@ -90,7 +90,7 @@
             "guestId": "guest-3",
             "conflict": {
               "offering": {
-                "id": "Y7JH-IC20261010-E"
+                "id": "example-offering-016"
               }
             }
           }
@@ -110,7 +110,7 @@
             "guestId": "guest-4",
             "conflict": {
               "offering": {
-                "id": "Y7JH-IC20261010-B"
+                "id": "example-offering-015"
               }
             }
           },
@@ -119,7 +119,7 @@
             "guestId": "guest-4",
             "conflict": {
               "offering": {
-                "id": "Y7JH-IC20261010-E"
+                "id": "example-offering-016"
               }
             }
           }
@@ -139,7 +139,7 @@
             "guestId": "guest-5",
             "conflict": {
               "offering": {
-                "id": "Y7JH-IC20261010-B"
+                "id": "example-offering-015"
               }
             }
           },
@@ -148,7 +148,7 @@
             "guestId": "guest-5",
             "conflict": {
               "offering": {
-                "id": "Y7JH-IC20261010-E"
+                "id": "example-offering-016"
               }
             }
           }
@@ -168,7 +168,7 @@
             "guestId": "guest-6",
             "conflict": {
               "offering": {
-                "id": "Y7JH-IC20261010-B"
+                "id": "example-offering-015"
               }
             }
           },
@@ -177,7 +177,7 @@
             "guestId": "guest-6",
             "conflict": {
               "offering": {
-                "id": "Y7JH-IC20261010-E"
+                "id": "example-offering-016"
               }
             }
           }
@@ -186,9 +186,9 @@
     ],
     "offerings": [
       {
-        "id": "Y7JH-IC20261010-B",
+        "id": "example-offering-015",
         "active": false,
-        "dateTime": "2026-10-11T18:30:00",
+        "dateTime": "2098-04-07T18:30:00",
         "stockLevelStatus": "inStock",
         "stockLevel": 188,
         "pricing": {
@@ -229,9 +229,9 @@
         ]
       },
       {
-        "id": "Y7JH-IC20261010-A",
+        "id": "example-offering-017",
         "active": false,
-        "dateTime": "2026-10-11T20:45:00",
+        "dateTime": "2098-04-07T20:45:00",
         "stockLevelStatus": "inStock",
         "stockLevel": 66,
         "pricing": {
@@ -259,9 +259,9 @@
         "issues": []
       },
       {
-        "id": "Y7JH-IC20261010-E",
+        "id": "example-offering-016",
         "active": false,
-        "dateTime": "2026-10-13T20:15:00",
+        "dateTime": "2098-04-09T20:15:00",
         "stockLevelStatus": "inStock",
         "stockLevel": 1,
         "pricing": {
@@ -294,9 +294,9 @@
         ]
       },
       {
-        "id": "Y7JH-IC20261010-D",
+        "id": "example-offering-018",
         "active": false,
-        "dateTime": "2026-10-13T22:30:00",
+        "dateTime": "2098-04-09T22:30:00",
         "stockLevelStatus": "inStock",
         "stockLevel": 386,
         "pricing": {
@@ -324,9 +324,9 @@
         "issues": []
       },
       {
-        "id": "Y7JH-IC20261010-F",
+        "id": "example-offering-019",
         "active": false,
-        "dateTime": "2026-10-16T19:15:00",
+        "dateTime": "2098-04-12T19:15:00",
         "stockLevelStatus": "inStock",
         "stockLevel": 384,
         "pricing": {
@@ -354,9 +354,9 @@
         "issues": []
       },
       {
-        "id": "Y7JH-IC20261010-C",
+        "id": "example-offering-020",
         "active": false,
-        "dateTime": "2026-10-16T21:30:00",
+        "dateTime": "2098-04-12T21:30:00",
         "stockLevelStatus": "inStock",
         "stockLevel": 504,
         "pricing": {

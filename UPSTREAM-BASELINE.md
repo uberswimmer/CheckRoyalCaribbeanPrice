@@ -8,11 +8,9 @@
 - License: upstream MIT license retained in `LICENSE`.
 
 This build starts from the inspected upstream main commit, not an inferred container
-release or moving `latest` tag. The extension is now maintained in
-https://github.com/uberswimmer/CheckRoyalCaribbeanPrice at initial application commit
-`afa25820640e756e17c17a85be41b69063b8e040`. See `GITHUB-DEPLOYMENT.md` for the
-publishing workflow and dedicated GHCR image. The original ZIP also contains a
-patch against the baseline and the full source needed to build locally.
+release or moving `latest` tag. See `GITHUB-DEPLOYMENT.md` for the publishing
+workflow and dedicated GHCR image. The registry owner is derived from the repository
+at build time; no personal account name is configured in source.
 
 In the fork, use `main` for the availability extension and merge upstream into
 a review branch first. Fetch upstream changes, merge them into the extension branch in a reviewable
@@ -35,6 +33,4 @@ Direct dependencies tested locally with Python 3.12.14:
 
 The upstream Docker base and requirements remain unpinned; dependency versions and
 the Python Alpine base can change on a future rebuild. Preserve your known-working
-image tag/digest when moving beyond the test stage. Daily upstream monitoring prepares tested update PRs; merges into the deployed
-branch still require approval. The prior release-report task is part of that same
-monitoring task.
+image tag/digest when moving beyond the test stage. Review and test upstream update PRs before merging into the deployed branch.

@@ -63,13 +63,13 @@ def context(tmp_path):
 def test_headliner_conflict_is_scoped_to_early_offering():
     r = evaluate()
     assert r.state == 'available'
-    assert r.times == ('2026-10-10T21:30:00',)
+    assert r.times == ('2098-04-06T21:30:00',)
     assert all(not o['active'] for o in capture('headliner')['payload']['offerings'])
 
 
 def test_release_ignores_personal_conflicts():
     r = evaluate(mode='release')
-    assert r.times == ('2026-10-10T19:15:00', '2026-10-10T21:30:00')
+    assert r.times == ('2098-04-06T19:15:00', '2098-04-06T21:30:00')
 
 
 def test_elemental_reserved_guests_do_not_hide_release():
@@ -80,8 +80,8 @@ def test_elemental_reserved_guests_do_not_hide_release():
 def test_railway_party_and_release_differ():
     r = evaluate('railway')
     assert r.state == 'available'
-    assert r.times == ('2027-02-12T20:30:00', '2027-02-12T20:40:00',
-                       '2027-02-14T20:30:00', '2027-02-14T20:40:00')
+    assert r.times == ('2098-07-02T20:30:00', '2098-07-02T20:40:00',
+                       '2098-07-04T20:30:00', '2098-07-04T20:40:00')
     assert len(evaluate('railway', 'release').times) == 12
 
 
@@ -189,7 +189,7 @@ def test_transport_and_graphql_errors(context, monkeypatch):
 def test_eligibility_request_uses_booking_context_without_cart_mutation(context, monkeypatch):
     a,b,w,_,party = context
     response = capture('headliner')
-    for o in response['payload']['offerings']:o['dateTime'] = o['dateTime'].replace('2026', '2099')
+    for o in response['payload']['offerings']:o['dateTime'] = o['dateTime'].replace('2098-04-06', '2099-10-10')
     fetch = Mock(return_value=response)
     monkeypatch.setattr(c, 'availability_json', fetch)
     c.availability_eligibility(a,b,w,w.product,party)
@@ -450,7 +450,7 @@ def test_end_to_end_only_mode_uses_captured_contracts_and_persists(context,monke
         def today(cls):return cls(2026,9,10)
     monkeypatch.setattr(c,'date',TestDate)
     a,b,w,s,p = context
-    b = dict(b,sailDate='20261010')
+    b = dict(b,sailDate='20980406')
     data = capture('headliner')
     w = replace(w,mode='party',guests=party_for(data))
     s = replace(s,watches=(w,))
