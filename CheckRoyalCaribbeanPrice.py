@@ -3521,26 +3521,32 @@ class AvailabilityResult:
     times: Tuple[str, ...] = ()
 
 
-def parse_availability_config(raw: Any) -> Optional[AvailabilitySettings]:
+def parse_availability_config(raw: Any, config_path: Optional[str] = None) -> Optional[AvailabilitySettings]:
     if raw is None:
         return None
     if not isinstance(raw, dict):
         raise ValueError("availability must be a mapping")
 
+    location = "availability"
+
+    def fail(message):
+        raise ValueError(f"{location}: {message}")
+
     def boolean(obj, key, default):
         value = obj.get(key, default)
         if not isinstance(value, bool):
-            raise ValueError(f"availability: {key} must be true or false")
+            fail(f"{key} must be true or false")
         return value
 
     def identifier(value, field_name):
         if isinstance(value, bool) or not isinstance(value, (str, int)) or not str(value).strip():
-            raise ValueError(f"availability: {field_name} must be a nonempty identifier")
+            fail(f"{field_name} must be a nonempty identifier")
         return str(value).strip()
 
     def keys(obj, allowed):
-        if set(obj) - set(allowed):
-            raise ValueError("availability: unrecognized configuration key")
+        unknown = set(obj) - set(allowed)
+        if unknown:
+            fail("unrecognized configuration key(s): " + ", ".join(sorted(map(str, unknown))))
 
     keys(raw, ("watches", "only", "dryRun", "stateFile"))
     watches = raw.get("watches")
@@ -3548,46 +3554,64 @@ def parse_availability_config(raw: Any) -> Optional[AvailabilitySettings]:
         raise ValueError("availability.watches must be a nonempty list")
     parsed = []
     ids = set()
-    for w in watches:
+    for index, w in enumerate(watches):
+        location = f"availability.watches[{index}]"
         if not isinstance(w, dict):
-            raise ValueError("Each availability watch must be a mapping")
+            fail("watch must be a mapping")
         keys(w, ("id", "name", "reservation", "category", "product", "mode", "guests",
                  "enabled", "notifyOnReopen", "cartId"))
         wid = identifier(w.get("id"), "id")
         if wid in ids:
-            raise ValueError("availability watch IDs must be unique")
+            fail("duplicate id; watch IDs must be unique")
         ids.add(wid)
         category = w.get("category")
         mode = w.get("mode", "release")
         if category not in ("show", "dining") or mode not in ("release", "party"):
-            raise ValueError("availability category must be show/dining and mode release/party")
+            fail("category must be show/dining and mode release/party")
         product = identifier(w["product"], "product") if "product" in w else None
         if category == "dining" and product is None:
-            raise ValueError("Dining availability watches require a product code")
+            fail("dining watches require a product code")
         guests = w.get("guests", [])
         if not isinstance(guests, list) or ("guests" in w and not guests):
-            raise ValueError("availability guests must be a nonempty list when specified")
+            fail("guests must be a nonempty list when specified")
         party = []
-        for guest in guests:
+        for guest_index, guest in enumerate(guests):
+            location = f"availability.watches[{index}].guests[{guest_index}]"
             if not isinstance(guest, dict):
-                raise ValueError("availability guests require id and reservationId")
+                fail("guest must be a mapping with id and reservationId")
             keys(guest, ("id", "reservationId"))
             party.append((identifier(guest.get("id"), "guest id"),
                           identifier(guest.get("reservationId"), "guest reservationId")))
+        location = f"availability.watches[{index}]"
         if len({g[0] for g in party}) != len(party):
-            raise ValueError("availability guest IDs must be unique")
+            fail("guest IDs must be unique")
         cart_id = w.get("cartId", "")
         if not isinstance(cart_id, str):
-            raise ValueError("availability cartId must be a string")
+            fail("cartId must be a string")
         parsed.append(AvailabilityWatch(
             id=wid, name=identifier(w.get("name", wid), "name"),
             reservation=identifier(w.get("reservation"), "reservation"),
             category=category, product=product, mode=mode, guests=tuple(party),
             enabled=boolean(w, "enabled", True),
             notify_on_reopen=boolean(w, "notifyOnReopen", False), cart_id=cart_id))
+    location = "availability"
     state = raw.get("stateFile", "data/availability.sqlite3")
     if not isinstance(state, str) or not state.strip() or state == ":memory:":
         raise ValueError("availability.stateFile must name a persistent file")
+    if config_path is not None:
+        path = Path(state).expanduser()
+        if not path.is_absolute():
+            destination = Path(config_path).expanduser().absolute().parent / path
+            legacy = path.absolute()
+            # Never silently abandon an existing notification database when
+            # changing from the original working-directory-relative behavior.
+            if legacy.exists() and legacy.resolve() != destination.resolve():
+                fail("stateFile: an existing file uses the old working-directory location; "
+                     "set stateFile to its absolute path to preserve notification history")
+            path = destination
+        if path.is_dir():
+            fail("stateFile must name a file, not a directory")
+        state = str(path)
     return AvailabilitySettings(tuple(parsed), boolean(raw, "only", False),
                                 boolean(raw, "dryRun", True), state)
 
@@ -3617,7 +3641,7 @@ def availability_json(account: AccountInfo, method: str, url: str, **kwargs) -> 
     if response is None:
         raise AvailabilityUnknown("request failed; previous state preserved")
     if not 200 <= response.status_code < 300:
-        raise AvailabilityUnknown("non-success HTTP response")
+        raise AvailabilityUnknown(f"Royal API returned HTTP {response.status_code}")
     try:
         data = response.json()
     except (ValueError, TypeError):
@@ -3954,7 +3978,9 @@ def deliver_availability(settings: AvailabilitySettings, account: AccountInfo, b
                     for r in candidates:
                         db.execute("UPDATE availability_v1 SET notified=1 WHERE scope=? AND product=?", (scope, r.product))
                 else:
-                    log_warn(f"    {RED}Notification not confirmed; will retry on a later check{RESET}")
+                    reason = ("No notification service configured; configure apprise for availability alerts"
+                              if notifier is None else "Notification not confirmed; will retry on a later check")
+                    log_warn(f"    {RED}{reason}{RESET}")
             db.commit()
         except Exception:
             db.rollback()
@@ -3972,6 +3998,9 @@ def process_availability_bookings(account: AccountInfo, bookings: list, settings
         return True
     log(f"\n  {account.friendly_name} for user {account.username}")
     healthy = True
+    # Per-account and per-run only. Cache complete catalogs (or their failure),
+    # not eligibility, which depends on the watch's configured party.
+    catalogs = {}
     for watch in settings.watches:
         if not watch.enabled:
             continue
@@ -3991,7 +4020,16 @@ def process_availability_bookings(account: AccountInfo, bookings: list, settings
                 continue
             party = availability_party(watch, booking)
             # Complete the whole catalog before declaring a product absent.
-            products = availability_products(account, booking, watch.category)
+            catalog_key = (watch.reservation, watch.category)
+            if catalog_key not in catalogs:
+                try:
+                    catalogs[catalog_key] = availability_products(account, booking, watch.category)
+                except (AvailabilityUnknown, KeyError, TypeError, AttributeError, ValueError) as exc:
+                    reason = str(exc) if isinstance(exc, AvailabilityUnknown) else "malformed catalog response"
+                    catalogs[catalog_key] = AvailabilityUnknown(reason)
+            if isinstance(catalogs[catalog_key], AvailabilityUnknown):
+                raise catalogs[catalog_key]
+            products = catalogs[catalog_key]
             if watch.product:
                 products = [p for p in products if p["id"] == watch.product]
             results = []
@@ -4044,10 +4082,27 @@ def process_availability_bookings(account: AccountInfo, bookings: list, settings
             healthy = deliver_availability(settings, account, booking, watch, party, results) and healthy
         except (AvailabilityUnknown, KeyError, TypeError, AttributeError, ValueError, OSError, sqlite3.Error) as exc:
             # Exception contents may include private API or filesystem details.
-            reason = str(exc) if isinstance(exc, AvailabilityUnknown) else type(exc).__name__
+            if isinstance(exc, AvailabilityUnknown):
+                reason = str(exc)
+            elif isinstance(exc, (OSError, sqlite3.Error)):
+                reason = f"state storage error ({type(exc).__name__}); check availability.stateFile and directory permissions"
+            else:
+                reason = type(exc).__name__
             log_warn(f"    {RED}Unknown ({reason}); state not advanced{RESET}")
             healthy = False
     return healthy
+
+
+def finish_availability_run(settings: AvailabilitySettings, found_reservations: set, healthy: bool) -> None:
+    """Use the same missing-booking and failure result in either execution mode."""
+    missing = [w.name for w in settings.watches if w.enabled and w.reservation not in found_reservations]
+    if missing:
+        log_warn(f"  {RED}Configured reservations were not found: {', '.join(missing)}{RESET}")
+        healthy = False
+    if not healthy:
+        raise AvailabilityUnknown("One or more availability checks or notifications failed; see status lines")
+    if any(w.enabled for w in settings.watches):
+        log(f"\n  {GREEN}Availability checks completed successfully{RESET}")
 
 
 def run_availability_only(settings: AvailabilitySettings) -> None:
@@ -4088,12 +4143,7 @@ def run_availability_only(settings: AvailabilitySettings) -> None:
             account.access.session.close()
         if index + 1 < len(config.accounts):
             time.sleep(ACCOUNT_COOLDOWN_SECONDS)
-    missing = [w.name for w in settings.watches if w.enabled and w.reservation not in found_reservations]
-    if missing:
-        log_warn("[Availability] Configured reservations were not found: " + ", ".join(missing))
-        healthy = False
-    if not healthy:
-        raise AvailabilityUnknown("One or more availability checks or notifications failed; see status lines")
+    finish_availability_run(settings, found_reservations, healthy)
 
 
 #####################################
@@ -4303,7 +4353,7 @@ def load_config_objects(config_path: str) -> CruiseAppConfig:
 
     # Build and return the global master config object using data.get() for fallback defaults
     config = CruiseAppConfig(
-        availability=parse_availability_config(data.get("availability")),
+        availability=parse_availability_config(data.get("availability"), config_path),
         display_cruise_prices=data.get("displayCruisePrices", True),
         minimum_saving_alert=minimum_saving_alert,
         notify_on_error=data.get("notifyOnError", False),
@@ -4412,6 +4462,10 @@ def main() -> None:
     unbooked prospective vacation watchlists.
     """
     deferred_availability = []
+    availability_enabled = (isinstance(config.availability, AvailabilitySettings)
+                            and any(w.enabled for w in config.availability.watches))
+    availability_healthy = True
+    availability_found = set()
     try:
         # Instantiate clean per-run tracker
         payment_tracker = CheckinPaymentTracker()
@@ -4506,10 +4560,12 @@ def main() -> None:
                    payment_tracker=payment_tracker,
                    collected_watch_rows=collected_watch_rows,
                  )
-                if (isinstance(config.availability, AvailabilitySettings)
-                        and any(w.enabled for w in config.availability.watches)
-                        and account_info.is_royal and isinstance(bookings, list)):
-                    deferred_availability.append((account_info, bookings))
+                if availability_enabled and account_info.is_royal:
+                    if isinstance(bookings, list):
+                        availability_found.update(str(b.get("bookingId")) for b in bookings if isinstance(b, dict))
+                        deferred_availability.append((account_info, bookings))
+                    else:
+                        availability_healthy = False
             finally:
                 # Keep authenticated sessions only until the deferred section.
                 # The outer finally also closes them if a later price check fails.
@@ -4559,10 +4615,10 @@ def main() -> None:
             # Safely release the connection socket resources back to the OS
             anon_session.close()
 
-        if deferred_availability:
+        if availability_enabled:
             log(f"\n{BLUE}Reservation Availability Watches{RESET}")
             for account_info, bookings in deferred_availability:
-                process_availability_bookings(account_info, bookings, config.availability)
+                availability_healthy = process_availability_bookings(account_info, bookings, config.availability) and availability_healthy
 
         # Summary table of upcoming check-in and final-payment dates for booked sailings
         payment_tracker.print_table()
@@ -4571,6 +4627,10 @@ def main() -> None:
         if config.output_watch_as_json:
             write_watch_price_json(collected_watch_rows, config.output_json_watch_file)
 
+        if availability_enabled:
+            # Finish price summaries/exports first; do not label a partial
+            # availability failure as an entirely successful combined run.
+            finish_availability_run(config.availability, availability_found, availability_healthy)
         config.history.finish_run("ok")
 
     except Exception as e:
@@ -4645,7 +4705,10 @@ if __name__ == "__main__":
 
         # Using sys.stderr here is correct for standard error streams
         sys.stderr.write(f"ERROR: {error_summary}\n")
-        traceback.print_exc()
+        # Expected API/state failures already have per-watch diagnostics.
+        # Preserve tracebacks for unexpected programming errors.
+        if not isinstance(exc, AvailabilityUnknown):
+            traceback.print_exc()
 
         # Safe structural verification for notifications
         if config is not None and config.notify_on_error and config.apobj:

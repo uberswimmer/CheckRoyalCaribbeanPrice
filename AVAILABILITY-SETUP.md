@@ -51,8 +51,9 @@ docker compose -f compose.availability.yaml run --rm royal-availability check
 A dry run does call Royal's read endpoints, including the POST eligibility query,
 using your credentials. It does not notify or advance availability notification state.
 Compare the returned product names and times with Cruise Planner. `unknown` means
-failed or insufficient evidence, not closed reservations. A failed check exits nonzero
-in availability-only mode. Fix failures before relying on monitoring.
+failed or insufficient evidence, not closed reservations. A failed availability check exits nonzero
+in either mode. Combined mode completes price summaries and exports before reporting
+the availability failure. Fix failures before relying on monitoring.
 
 When the diagnostic output matches the website, change `dryRun` to `false`, then:
 
@@ -162,20 +163,61 @@ quotes differed only in offering IDs and did not validate inventory.
   acknowledgement, an alert can repeat. Partial success across multiple Apprise
   destinations can also repeat at successful destinations on retry.
 
+## State location and diagnostics
+
+Relative `availability.stateFile` paths resolve beside the YAML configuration file,
+so running from another directory does not silently create new alert history.
+Absolute paths, including `/app/data/availability.sqlite3`, remain unchanged. `~`
+expands to the operating system user's home directory. On mobile installations,
+use the configuration's document directory or an explicit writable absolute path.
+
+Older extension versions resolved relative paths from the working directory. If
+an existing database is detected at that old location and the locations differ,
+validation stops with a migration message. Set `stateFile` to the existing database's
+absolute path to keep the history, or deliberately move it while the checker is
+stopped and set the intended path. The checker never moves or deletes a database
+automatically. Keep the directory bind-mounted in Docker.
+
+Configuration errors name their location, for example
+`availability.watches[1].guests[0]`, and identify an invalid key without printing its
+value. List indexes start at zero. Missing booking numbers are assessed across all
+successfully retrieved accounts in both modes. A failed API lookup is not interpreted
+as a known unavailable product.
+
+Expected availability failures print concise diagnostics and exit nonzero without a
+Python traceback. `notifyOnError` continues to control the existing global error
+notification. Unexpected programming errors retain tracebacks. No notification
+service, failed delivery, and state-storage problems have distinct messages; an alert
+is never acknowledged until delivery is confirmed.
+
+Catalogs are reused only for watches with the same account, booking, and category
+within a single pass. Failed catalog results are also reused within that pass to
+avoid repeating the same failed request sequence. Each later run fetches fresh data.
+Eligibility queries are not cached and still use each watch's own party.
+
+Notification identity continues to include the account. If the same booking is
+visible to two configured accounts, both can notify. To avoid that today, run
+availability with a configuration containing one account that can see the intended
+bookings. There is no new implicit account-selection or cross-account deduplication
+policy in this update.
+
 ## First live validation and cartId
 
-Captured request bodies contained a `cartId`. The initial integration sends an empty
-string and reuses the checker's authenticated session. Whether Royal accepts this has
-not been verified live. If rejected, the result remains unknown; the script does not
-create a cart or fabricate a token. A watch has an optional `cartId` override for
-controlled local diagnosis, but an expiring captured browser cart ID is not a durable
-production solution. Keep it out of source control.
+Live entertainment checks have succeeded using the checker's authentication and
+default empty `cartId`, including examples with listed inventory and no listed shows.
+This is evidence for those tested scenarios, not a guarantee for every account,
+sailing, or dining product. Royal Railway and party-aware checks still need live
+validation through the checker.
 
-Authentication interoperability, the reduced authenticated catalog query (including
-Royal Railway discovery), and empty-cart behavior must be validated on your host.
-A product absent from the complete catalog is considered not listed even if its
-standalone detail URL remains accessible. Only Royal Caribbean is supported in this
-initial availability extension.
+If Royal rejects the empty cart ID, the result stays unknown; the script does not
+create a cart or fabricate a token. The optional per-watch `cartId` is for controlled
+local diagnosis. An expiring browser cart ID is not a durable production solution
+and must not be committed to source control.
+
+Compare returned inventory with Cruise Planner before relying on a new watch. A
+product absent from the complete catalog is considered not listed even if its
+standalone detail URL remains accessible. Only Royal Caribbean is supported in
+this initial availability extension.
 
 ## Verification and maintenance
 
