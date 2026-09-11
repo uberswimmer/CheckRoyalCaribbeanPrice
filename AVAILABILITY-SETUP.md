@@ -165,18 +165,12 @@ quotes differed only in offering IDs and did not validate inventory.
 
 ## State location and diagnostics
 
-Relative `availability.stateFile` paths resolve beside the YAML configuration file,
-so running from another directory does not silently create new alert history.
-Absolute paths, including `/app/data/availability.sqlite3`, remain unchanged. `~`
-expands to the operating system user's home directory. On mobile installations,
-use the configuration's document directory or an explicit writable absolute path.
-
-Older extension versions resolved relative paths from the working directory. If
-an existing database is detected at that old location and the locations differ,
-validation stops with a migration message. Set `stateFile` to the existing database's
-absolute path to keep the history, or deliberately move it while the checker is
-stopped and set the intended path. The checker never moves or deletes a database
-automatically. Keep the directory bind-mounted in Docker.
+Relative `availability.stateFile` paths use the process's working directory, as in
+previous extension versions. Use an absolute path to keep notification history in
+the same location when launching from different directories. For Docker, use
+`/app/data/availability.sqlite3` and keep `/app/data` bind-mounted. On other systems,
+choose an explicit writable absolute path. No path migration or automatic database
+movement is performed.
 
 Configuration errors name their location, for example
 `availability.watches[1].guests[0]`, and identify an invalid key without printing its

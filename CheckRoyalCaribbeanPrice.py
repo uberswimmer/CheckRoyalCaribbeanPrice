@@ -3521,7 +3521,7 @@ class AvailabilityResult:
     times: Tuple[str, ...] = ()
 
 
-def parse_availability_config(raw: Any, config_path: Optional[str] = None) -> Optional[AvailabilitySettings]:
+def parse_availability_config(raw: Any) -> Optional[AvailabilitySettings]:
     if raw is None:
         return None
     if not isinstance(raw, dict):
@@ -3598,20 +3598,6 @@ def parse_availability_config(raw: Any, config_path: Optional[str] = None) -> Op
     state = raw.get("stateFile", "data/availability.sqlite3")
     if not isinstance(state, str) or not state.strip() or state == ":memory:":
         raise ValueError("availability.stateFile must name a persistent file")
-    if config_path is not None:
-        path = Path(state).expanduser()
-        if not path.is_absolute():
-            destination = Path(config_path).expanduser().absolute().parent / path
-            legacy = path.absolute()
-            # Never silently abandon an existing notification database when
-            # changing from the original working-directory-relative behavior.
-            if legacy.exists() and legacy.resolve() != destination.resolve():
-                fail("stateFile: an existing file uses the old working-directory location; "
-                     "set stateFile to its absolute path to preserve notification history")
-            path = destination
-        if path.is_dir():
-            fail("stateFile must name a file, not a directory")
-        state = str(path)
     return AvailabilitySettings(tuple(parsed), boolean(raw, "only", False),
                                 boolean(raw, "dryRun", True), state)
 
@@ -4353,7 +4339,7 @@ def load_config_objects(config_path: str) -> CruiseAppConfig:
 
     # Build and return the global master config object using data.get() for fallback defaults
     config = CruiseAppConfig(
-        availability=parse_availability_config(data.get("availability"), config_path),
+        availability=parse_availability_config(data.get("availability")),
         display_cruise_prices=data.get("displayCruisePrices", True),
         minimum_saving_alert=minimum_saving_alert,
         notify_on_error=data.get("notifyOnError", False),
@@ -4618,7 +4604,8 @@ def main() -> None:
         if availability_enabled:
             log(f"\n{BLUE}Reservation Availability Watches{RESET}")
             for account_info, bookings in deferred_availability:
-                availability_healthy = process_availability_bookings(account_info, bookings, config.availability) and availability_healthy
+                if not process_availability_bookings(account_info, bookings, config.availability):
+                    availability_healthy = False
 
         # Summary table of upcoming check-in and final-payment dates for booked sailings
         payment_tracker.print_table()
@@ -4642,7 +4629,9 @@ def main() -> None:
             account_info.access.session.close()
 
 
-if __name__ == "__main__":
+def cli() -> None:
+    """Load configuration and run the checker with command-line error reporting."""
+    global config
     config_path = get_config_path()
 
     try:
@@ -4717,3 +4706,7 @@ if __name__ == "__main__":
                 config.apobj.notify(body=body, title='Cruise Price Script Error', body_format=NotifyFormat.TEXT)
 
         sys.exit(1)
+
+
+if __name__ == "__main__":
+    cli()

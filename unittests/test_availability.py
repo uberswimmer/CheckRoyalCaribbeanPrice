@@ -753,90 +753,28 @@ def test_config_diagnostics_identify_location_without_echoing_values(change, exp
     assert 'SECRET_VALUE' not in str(exc.value)
 
 
-def test_state_path_is_relative_to_config_even_when_working_directory_changes(tmp_path, monkeypatch):
-    first = tmp_path/'cwd-1'; first.mkdir()
-    second = tmp_path/'cwd-2'; second.mkdir()
-    config_file = tmp_path/'configuration'/'settings.yaml'
-    paths = []
-    for directory in (first, second):
-        monkeypatch.chdir(directory)
-        paths.append(c.parse_availability_config(valid_config(), str(config_file)).state_file)
-    assert paths == [str(config_file.parent/'data'/'availability.sqlite3')]*2
-    assert not config_file.parent.exists()  # validation must not create state directories
-
-
-def test_existing_legacy_state_requires_explicit_path_without_modifying_file(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    legacy = tmp_path/'data'/'availability.sqlite3'; legacy.parent.mkdir()
-    legacy.write_bytes(b'untouched existing history')
-    config_file = tmp_path/'configuration'/'settings.yaml'
-    with pytest.raises(ValueError, match='old working-directory location'):
-        c.parse_availability_config(valid_config(), str(config_file))
-    assert legacy.read_bytes() == b'untouched existing history'
-    assert not config_file.parent.exists()
-    raw = valid_config(); raw['stateFile'] = str(legacy)
-    assert c.parse_availability_config(raw, str(config_file)).state_file == str(legacy)
-
-
-def test_existing_state_next_to_config_keeps_same_location(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    state = tmp_path/'data'/'availability.sqlite3'; state.parent.mkdir(); state.touch()
-    settings = c.parse_availability_config(valid_config(), str(tmp_path/'config.yaml'))
-    assert settings.state_file == str(state)
-
-
-def test_absolute_docker_and_home_paths_are_not_rebased(tmp_path):
-    for path in ('/app/data/availability.sqlite3', '~/availability-test-example.sqlite3'):
-        raw = valid_config(); raw['stateFile'] = path
-        assert c.parse_availability_config(raw, str(tmp_path/'settings.yaml')).state_file == str(Path(path).expanduser())
-
-
-def test_directory_state_path_is_rejected(tmp_path):
-    raw = valid_config(); raw['stateFile'] = str(tmp_path)
-    with pytest.raises(ValueError, match='not a directory'):
-        c.parse_availability_config(raw, str(tmp_path/'settings.yaml'))
-
-
-def test_loader_passes_config_location_to_state_resolver(tmp_path, monkeypatch):
-    import yaml
-    config_file = tmp_path/'configuration'/'settings.yaml'; config_file.parent.mkdir()
-    raw = {'accountInfo':[{'username':'example@example.invalid','password':'not-a-password'}],
-           'availability':valid_config()}
-    config_file.write_text(yaml.safe_dump(raw))
-    monkeypatch.setattr(c, 'setup_hybrid_logging', Mock())
-    loaded = c.load_config_objects(str(config_file))
-    assert loaded.availability.state_file == str(config_file.parent/'data'/'availability.sqlite3')
-    assert not (config_file.parent/'data').exists()
-
-
 @pytest.mark.parametrize('failure, traceback_expected', [
     (c.AvailabilityUnknown('incomplete availability check'), False),
     (RuntimeError('unexpected programming error'), True),
 ])
 def test_cli_error_dispatch_keeps_nonzero_exit_without_expected_failure_traceback(monkeypatch, failure, traceback_expected):
-    # Exercise the real script's entrypoint/error handler with in-memory dependencies,
-    # avoiding real authentication, credentials, or a subprocess-specific transport.
-    import ast
     from io import StringIO
     from unittest.mock import MagicMock
-    source = Path(c.__file__).read_text()
-    tree = ast.parse(source)
-    entrypoint = next(node for node in reversed(tree.body) if isinstance(node, ast.If))
-    namespace = vars(c).copy()
-    namespace.update(__name__='__main__', VALIDATE_CONFIG_ONLY=False,
-                     get_config_path=Mock(return_value='unused.yaml'),
-                     load_config_objects=Mock(return_value=c.config),
-                     main=Mock(side_effect=failure), traceback=Mock())
+    monkeypatch.setattr(c, 'VALIDATE_CONFIG_ONLY', False, raising=False)
+    monkeypatch.setattr(c, 'get_config_path', Mock(return_value='unused.yaml'))
+    monkeypatch.setattr(c, 'load_config_objects', Mock(return_value=c.config))
+    monkeypatch.setattr(c, 'main', Mock(side_effect=failure))
+    monkeypatch.setattr(c.traceback, 'print_exc', Mock())
     c.config.notify_on_error = True
     c.config.apobj = MagicMock()
     c.config.apobj.__len__.return_value = 1
     stderr = StringIO()
     monkeypatch.setattr(c.sys, 'stderr', stderr)
     with pytest.raises(SystemExit) as exc:
-        exec(compile(ast.Module(body=[entrypoint], type_ignores=[]), c.__file__, 'exec'), namespace)
+        c.cli()
     assert exc.value.code == 1
     assert str(failure) in stderr.getvalue()
-    assert namespace['traceback'].print_exc.called is traceback_expected
+    assert c.traceback.print_exc.called is traceback_expected
     c.config.apobj.notify.assert_called_once()
 
 
@@ -867,3 +805,20 @@ def test_state_storage_diagnostic_is_actionable_and_does_not_expose_exception(co
     messages = '\n'.join(call.args[0] for call in c.log_warn.call_args_list)
     assert 'check availability.stateFile and directory permissions' in messages
     assert 'PRIVATE_PATH' not in messages
+
+
+def test_combined_failure_does_not_skip_later_accounts(context, monkeypatch):
+    a, b = setup_combined_console(context, monkeypatch)
+    c.config.history = Mock()
+    c.config.prospective_cruises = []
+    second = replace(a, username='second@example.invalid', access=c.APIAccess('fake', 'second', Mock()))
+    c.config.accounts.append(second)
+    monkeypatch.setattr(c, 'get_voyages', Mock(return_value=[b]))
+    checks = Mock(side_effect=[False, True])
+    monkeypatch.setattr(c, 'process_availability_bookings', checks)
+    with pytest.raises(c.AvailabilityUnknown):
+        c.main()
+    assert [call.args[0] for call in checks.call_args_list] == [a, second]
+    assert c.config.history.finish_run.call_args.args[0] == 'error'
+    a.access.session.close.assert_called_once()
+    second.access.session.close.assert_called_once()

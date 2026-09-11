@@ -100,15 +100,17 @@ not checkout. The watcher does not reserve, purchase, modify, or cancel anything
 ## Upstream-readiness refinements
 
 The proposed readiness change addresses combined-mode failure propagation,
-configuration diagnostics, stable state paths, and per-run catalog reuse. Price
+configuration diagnostics and per-run catalog reuse. Price
 summaries and JSON exports finish before an availability failure marks the run as
 failed. Expected availability failures preserve the existing error notification
 and nonzero exit behavior without a traceback; programming errors retain theirs.
 
 The review specifically checks that caches do not cross accounts or runs, that
-eligibility remains per-watch, and that changing state-path semantics cannot silently
-abandon an existing database. No database migration or account-deduplication policy
-is performed automatically. The existing absolute Docker state path is unaffected.
+eligibility remains per-watch, and that a failed check does not skip later accounts.
+State paths retain their existing working-directory-relative behavior; use an absolute
+path for a stable location. No path migration or account-deduplication policy is
+introduced. The existing absolute Docker state path is unaffected. The command-line
+handler is a directly testable function, without source parsing in the tests.
 
 Live entertainment discovery is now confirmed by user-provided console results.
 The mixed-catalog tests include the observed `pt_onboardActivities` category.
@@ -117,6 +119,6 @@ across reruns and container recreation, and live dining/party-aware scenarios.
 An upstream submission still needs the maintainer's configuration-design preference
 and a contribution branch excluding fork-specific deployment material.
 
-Local verification of the readiness changes: **351 tests passed**, including
-23 additional regression cases, with the same existing dependency deprecation warning.
+Local verification of the readiness changes: **346 tests passed**, including
+18 additional regression cases, with the same existing dependency deprecation warning.
 Remote Python and container validation results are recorded on the refinement PR.
