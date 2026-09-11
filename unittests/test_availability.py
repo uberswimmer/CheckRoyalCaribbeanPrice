@@ -485,15 +485,16 @@ def test_end_to_end_only_mode_uses_captured_contracts_and_persists(context,monke
     assert '21:30:00' in body and '19:15:00' not in body
 
 
-def test_normal_booking_path_invokes_availability_without_changing_price_work(context,monkeypatch):
+def test_booking_path_returns_snapshot_without_running_availability_early(context,monkeypatch):
     a,b,w,s,p = context
     c.config.availability=replace(s,only=False)
     monkeypatch.setattr(c,'_execute_api_request',Mock(return_value=Mock(
         json=Mock(return_value={'payload':{'profileBookings':[]}}))))
     process=Mock(return_value=True)
     monkeypatch.setattr(c,'process_availability_bookings',process)
-    c.get_voyages(a,c.DiscountProfile('',None,False,False,False,False,False),c.ShipRegistry())
-    process.assert_called_once_with(a,[],c.config.availability)
+    bookings = c.get_voyages(a,c.DiscountProfile('',None,False,False,False,False,False),c.ShipRegistry())
+    assert bookings == []
+    process.assert_not_called()
 
 
 def test_validate_cli_makes_no_requests(tmp_path):
@@ -585,3 +586,75 @@ def test_skipped_type_change_preserves_previous_notification(context, monkeypatc
     after.close()
     deliver(ctx)
     assert c.config.apobj.notify.call_count == 1
+
+
+def setup_combined_console(context, monkeypatch):
+    from types import SimpleNamespace
+    a, b, w, s, p = context
+    c.config.availability = replace(s, only=False)
+    c.config.accounts = [a]
+    c.config.prospective_cruises = [SimpleNamespace(cruise_URL='https://example.invalid', paid_price=100)]
+    monkeypatch.setattr(c, 'login', Mock(side_effect=lambda account: account.access))
+    monkeypatch.setattr(c, 'get_profile', Mock(return_value=('OH', '', 0)))
+    monkeypatch.setattr(c, 'get_ship_dictionary_web', Mock())
+    monkeypatch.setattr(c, 'new_api_session', Mock(return_value=Mock()))
+    monkeypatch.setattr(c.time, 'sleep', Mock())
+    return a, b
+
+
+def test_combined_availability_runs_after_all_price_watches_before_summary(context, monkeypatch):
+    a, b = setup_combined_console(context, monkeypatch)
+    second = replace(a, username='second@example.invalid', access=c.APIAccess('fake', 'second', Mock()))
+    c.config.accounts.append(second)
+    events = []
+    def booked(account, *args, **kwargs):
+        events.append(('booked-prices-and-watches', account.username))
+        return [b]
+    def availability(account, bookings, settings):
+        assert bookings == [b]
+        account.access.session.close.assert_not_called()
+        events.append(('availability', account.username))
+        return True
+    monkeypatch.setattr(c, 'get_voyages', Mock(side_effect=booked))
+    monkeypatch.setattr(c, 'get_cruise_price', Mock(side_effect=lambda *a, **k: events.append(('prospective-prices', None))))
+    monkeypatch.setattr(c, 'process_availability_bookings', Mock(side_effect=availability))
+    monkeypatch.setattr(c.CheckinPaymentTracker, 'print_table', lambda self: events.append(('summary', None)))
+    c.main()
+    assert events == [('booked-prices-and-watches', a.username),
+                      ('booked-prices-and-watches', second.username),
+                      ('prospective-prices', None), ('availability', a.username),
+                      ('availability', second.username), ('summary', None)]
+    assert c.login.call_count == 2
+    a.access.session.close.assert_called_once()
+    second.access.session.close.assert_called_once()
+    assert sum('Reservation Availability Watches' in call.args[0] for call in c.log.call_args_list) == 1
+
+
+@pytest.mark.parametrize('failure_stage', ['second_account', 'prospective', 'availability'])
+def test_deferred_sessions_close_on_later_failure(context, monkeypatch, failure_stage):
+    a, b = setup_combined_console(context, monkeypatch)
+    second = replace(a, username='second@example.invalid', access=c.APIAccess('fake', 'second', Mock()))
+    c.config.accounts.append(second)
+    monkeypatch.setattr(c, 'get_voyages', Mock(side_effect=[
+        [b], RuntimeError('test failure') if failure_stage == 'second_account' else [b]]))
+    monkeypatch.setattr(c, 'get_cruise_price', Mock(side_effect=RuntimeError('test failure') if failure_stage == 'prospective' else None))
+    monkeypatch.setattr(c, 'process_availability_bookings', Mock(side_effect=RuntimeError('test failure') if failure_stage == 'availability' else None))
+    with pytest.raises(RuntimeError, match='test failure'):
+        c.main()
+    a.access.session.close.assert_called_once()
+    second.access.session.close.assert_called_once()
+
+
+def test_availability_console_uses_status_colors_and_groups_times(context):
+    a, b, w, s, p = context
+    results = [c.AvailabilityResult('show', 'Show', 'available', 'inventory',
+               ('2099-10-10T19:15:00', '2099-10-10T21:30:00')),
+               c.AvailabilityResult('closed', 'Closed', 'unavailable', 'no offerings'),
+               c.AvailabilityResult('error', 'Error', 'unknown', 'request failed')]
+    assert not c.deliver_availability(replace(s, dry_run=True), a, b, w, p, results)
+    lines = [call.args[0] for call in c.log.call_args_list]
+    assert any(c.GREEN + 'Show: Available' in line for line in lines)
+    assert any(c.YELLOW + 'Closed: Unavailable' in line for line in lines)
+    assert any(c.RED + 'Error: Unknown' in line for line in lines)
+    assert any('19:15, 21:30' in line and line.startswith('      ') for line in lines)
+    assert not any('2099-10-10T' in line for line in lines)

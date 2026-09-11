@@ -109,6 +109,18 @@ upstream behavior is unchanged. `dryRun` controls only availability notification
 normal price notifications and an explicit `appriseTest` retain upstream behavior.
 For your separate instance, keep `only: true`.
 
+In combined mode, the `Reservation Availability Watches` console section runs
+after booked-item price watches and the prospective cruise watchlist, before the
+check-in/payment summary. It reuses each account's existing authenticated session
+and booking snapshot. Availability-only mode uses the same section layout.
+Blue headings separate accounts and watches; available results are green,
+unavailable results yellow, and unknown/error results red. Times are grouped by
+date in 24-hour format, preserving the wall-clock times returned by Royal.
+
+`availability.dryRun` is not a global dry-run switch. The upstream program has no
+general dry-run mode: combined price checks can still send their normal alerts.
+The console labels this setting as `Availability dry run` to make the scope clear.
+
 ## What the detector actually knows
 
 Entertainment uses GraphQL category `show` and eligibility category `pt_show`.

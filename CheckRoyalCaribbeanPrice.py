@@ -1586,7 +1586,7 @@ def get_voyages(
     ship_dictionary: ShipRegistry,
     payment_tracker: Optional[CheckinPaymentTracker] = None,
     collected_watch_rows: Optional[List[Dict[str, Any]]] = None,
-) -> None:
+) -> Optional[List[Dict[str, Any]]]:
     """
     Extracts all current, valid upcoming cruise bookings linked to an active account profile.
 
@@ -1620,9 +1620,6 @@ def get_voyages(
         log(f"{YELLOW}Could not retrieve bookings after retries; skipping this account{RESET}")
         return
     bookings = response.json().get("payload", {}).get("profileBookings", [])
-
-    if isinstance(config.availability, AvailabilitySettings):
-        process_availability_bookings(account_info, bookings, config.availability)
 
     for booking in bookings:
         # Pull out the individual booking fields
@@ -1860,6 +1857,10 @@ def get_voyages(
                 )
 
             log(" ")
+
+
+    # Reuse this booking snapshot for the availability section after price watches.
+    return bookings
 
 
 def get_dining_and_prices(account_info: AccountInfo, booking: Dict[str, Any]) -> Dict[str, List[Any]]:
@@ -3887,11 +3888,18 @@ def deliver_availability(settings: AvailabilitySettings, account: AccountInfo, b
     Dry runs never create or advance state, so enabling alerts cannot swallow one.
     """
     for r in results:
-        log(f"[Availability] {watch.name} / {r.title}: {r.state} ({r.reason})")
+        color = {"available": GREEN, "unavailable": YELLOW, "unknown": RED}[r.state]
+        log(f"    {color}{r.title}: {r.state.capitalize()}{RESET} ({r.reason})")
         if r.times:
-            log("  Times returned by Royal: " + ", ".join(r.times))
+            by_date = {}
+            for stamp in r.times:
+                when = datetime.fromisoformat(stamp)
+                day = config.format_date(when.strftime("%Y%m%d"))
+                by_date.setdefault(day, []).append(when.strftime("%H:%M"))
+            for day, times in by_date.items():
+                log(f"      {day}: {', '.join(times)}")
     if settings.dry_run:
-        log("[Availability] Dry run: no notifications or state changes")
+        log(f"    {YELLOW}Availability dry run: no availability notifications or state changes{RESET}")
         return not any(r.state == "unknown" for r in results)
     path = Path(settings.state_file).expanduser()
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -3946,7 +3954,7 @@ def deliver_availability(settings: AvailabilitySettings, account: AccountInfo, b
                     for r in candidates:
                         db.execute("UPDATE availability_v1 SET notified=1 WHERE scope=? AND product=?", (scope, r.product))
                 else:
-                    log_warn("[Availability] Notification not confirmed; will retry on a later check")
+                    log_warn(f"    {RED}Notification not confirmed; will retry on a later check{RESET}")
             db.commit()
         except Exception:
             db.rollback()
@@ -3960,13 +3968,17 @@ def process_availability_bookings(account: AccountInfo, bookings: list, settings
         return False
     if not isinstance(bookings, list) or any(not isinstance(b, dict) for b in bookings):
         raise AvailabilityUnknown("invalid booking list")
+    if not any(w.enabled for w in settings.watches):
+        return True
+    log(f"\n  {account.friendly_name} for user {account.username}")
     healthy = True
     for watch in settings.watches:
         if not watch.enabled:
             continue
+        log(f"\n  {BLUE}{watch.name}{RESET}")
         matches = [b for b in bookings if str(b.get("bookingId")) == watch.reservation]
         if not matches:
-            log(f"[Availability] {watch.name}: reservation not found in this account; no state change")
+            log(f"    {YELLOW}Reservation not found in this account; no state change{RESET}")
             continue
         try:
             if len(matches) != 1:
@@ -3975,7 +3987,7 @@ def process_availability_bookings(account: AccountInfo, bookings: list, settings
             if any(not booking.get(k) for k in ("bookingId", "passengerId", "shipCode", "sailDate")):
                 raise AvailabilityUnknown("incomplete booking context")
             if availability_date(booking["sailDate"]) < date.today():
-                log(f"[Availability] {watch.name}: departed sailing skipped")
+                log("    Departed sailing skipped")
                 continue
             party = availability_party(watch, booking)
             # Complete the whole catalog before declaring a product absent.
@@ -3999,7 +4011,7 @@ def process_availability_bookings(account: AccountInfo, bookings: list, settings
                         # Royal's category pages can contain other product types,
                         # such as escape rooms alongside shows. Do not query those
                         # using pt_show or mistake them for an unavailable show.
-                        log(f"[Availability] {watch.name} / {title}: skipped "
+                        log(f"    {title}: skipped "
                             f"(catalog type {type_id}; watching pt_{watch.category})")
                         skipped += 1
                     continue
@@ -4012,10 +4024,10 @@ def process_availability_bookings(account: AccountInfo, bookings: list, settings
             if watch.product and not products:
                 results.append(AvailabilityResult(watch.product, watch.name, "unavailable", "product not listed"))
             if not products and not watch.product:
-                log(f"[Availability] {watch.name}: no entertainment products listed")
+                log(f"    {YELLOW}No entertainment products listed{RESET}")
             elif skipped and skipped == len(products):
-                log(f"[Availability] {watch.name}: no matching show products listed "
-                    f"({skipped} other-category products skipped)")
+                log(f"    {YELLOW}No matching show products listed "
+                    f"({skipped} other-category products skipped){RESET}")
             # Previously seen shows that disappear from a complete catalog are
             # genuinely absent. Errors/partial pages never reach this branch.
             if not watch.product and not settings.dry_run and Path(settings.state_file).expanduser().exists():
@@ -4033,12 +4045,13 @@ def process_availability_bookings(account: AccountInfo, bookings: list, settings
         except (AvailabilityUnknown, KeyError, TypeError, AttributeError, ValueError, OSError, sqlite3.Error) as exc:
             # Exception contents may include private API or filesystem details.
             reason = str(exc) if isinstance(exc, AvailabilityUnknown) else type(exc).__name__
-            log_warn(f"[Availability] {watch.name}: unknown ({reason}); state not advanced")
+            log_warn(f"    {RED}Unknown ({reason}); state not advanced{RESET}")
             healthy = False
     return healthy
 
 
 def run_availability_only(settings: AvailabilitySettings) -> None:
+    log(f"\n{BLUE}Reservation Availability Watches{RESET}")
     if not config.accounts:
         raise ValueError("Availability-only mode requires accountInfo")
     if not any(w.enabled for w in settings.watches):
@@ -4398,6 +4411,7 @@ def main() -> None:
     authenticates active user accounts, inspects individual bookings, and processes
     unbooked prospective vacation watchlists.
     """
+    deferred_availability = []
     try:
         # Instantiate clean per-run tracker
         payment_tracker = CheckinPaymentTracker()
@@ -4485,17 +4499,22 @@ def main() -> None:
 
             # Gather the information on all voyages under the current account
             try:
-                get_voyages(
+                bookings = get_voyages(
                    account_info,
                    discounts,
                    ship_dictionary,
                    payment_tracker=payment_tracker,
                    collected_watch_rows=collected_watch_rows,
                  )
+                if (isinstance(config.availability, AvailabilitySettings)
+                        and any(w.enabled for w in config.availability.watches)
+                        and account_info.is_royal and isinstance(bookings, list)):
+                    deferred_availability.append((account_info, bookings))
             finally:
-                # Close the account session even when a booking raises, so
-                # sessions don't leak across the remaining accounts
-                account_info.access.session.close()
+                # Keep authenticated sessions only until the deferred section.
+                # The outer finally also closes them if a later price check fails.
+                if not any(a is account_info for a, _ in deferred_availability):
+                    account_info.access.session.close()
             if len(config.accounts) > 1:
                 log("Sleeping for 5 seconds to allow API to cool down between accounts")
                 time.sleep(ACCOUNT_COOLDOWN_SECONDS)
@@ -4540,6 +4559,11 @@ def main() -> None:
             # Safely release the connection socket resources back to the OS
             anon_session.close()
 
+        if deferred_availability:
+            log(f"\n{BLUE}Reservation Availability Watches{RESET}")
+            for account_info, bookings in deferred_availability:
+                process_availability_bookings(account_info, bookings, config.availability)
+
         # Summary table of upcoming check-in and final-payment dates for booked sailings
         payment_tracker.print_table()
 
@@ -4553,6 +4577,9 @@ def main() -> None:
         # Mark the price-history run as failed before the module-level handler reports it
         config.history.finish_run("error", f"{type(e).__name__}: {e}")
         raise
+    finally:
+        for account_info, _ in deferred_availability:
+            account_info.access.session.close()
 
 
 if __name__ == "__main__":
