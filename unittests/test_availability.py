@@ -507,3 +507,81 @@ def test_validate_cli_makes_no_requests(tmp_path):
     assert proc.returncode==0,proc.stderr
     assert 'No Royal Caribbean requests made' in proc.stdout
     assert not (tmp_path/'availability.sqlite3').exists()
+
+
+@pytest.mark.parametrize('dry_run', [True, False])
+def test_discovery_skips_other_category_without_error_or_notification(context, monkeypatch, dry_run):
+    # Synthetic types: the Star screenshot reports a mismatch, not the actual IDs.
+    a, b, w, s, p = context
+    w = replace(w, product=None)
+    products = [
+        {'id': 'escape-1', 'title': 'Escape room', 'type': {'id': 'pt_activity'}},
+        {'id': 'dinner-1', 'title': 'Experience dinner', 'type': {'id': 'pt_dining'}},
+    ]
+    monkeypatch.setattr(c, 'availability_products', Mock(return_value=products))
+    eligibility = Mock(side_effect=AssertionError('must not query another product type'))
+    monkeypatch.setattr(c, 'availability_eligibility', eligibility)
+    assert c.process_availability_bookings(a, [b], replace(s, watches=(w,), dry_run=dry_run))
+    eligibility.assert_not_called()
+    c.config.apobj.notify.assert_not_called()
+    assert any('2 other-category products skipped' in call.args[0] for call in c.log.call_args_list)
+    if dry_run:
+        assert not Path(s.state_file).exists()
+
+
+def test_mixed_catalog_still_checks_and_notifies_matching_show(context, monkeypatch):
+    a, b, w, s, p = context
+    products = [
+        {'id': 'escape-1', 'title': 'Escape room', 'type': {'id': 'pt_activity'}},
+        {'id': w.product, 'title': 'Headliner', 'type': {'id': 'pt_show'}},
+    ]
+    monkeypatch.setattr(c, 'availability_products', Mock(return_value=products))
+    eligibility = Mock(return_value=capture('headliner'))
+    monkeypatch.setattr(c, 'availability_eligibility', eligibility)
+    discovery = replace(w, product=None)
+    assert c.process_availability_bookings(a, [b], replace(s, watches=(discovery,)))
+    eligibility.assert_called_once_with(a, b, discovery, w.product, p)
+    c.config.apobj.notify.assert_called_once()
+    assert 'Headliner:' in c.config.apobj.notify.call_args.kwargs['body']
+    assert 'Escape room' not in c.config.apobj.notify.call_args.kwargs['body']
+
+
+def test_explicit_product_type_mismatch_stays_unknown(context, monkeypatch):
+    a, b, w, s, p = context
+    monkeypatch.setattr(c, 'availability_products', Mock(return_value=[
+        {'id': w.product, 'title': 'Other type', 'type': {'id': 'pt_activity'}}]))
+    eligibility = Mock(side_effect=AssertionError('must not query another product type'))
+    monkeypatch.setattr(c, 'availability_eligibility', eligibility)
+    assert not c.process_availability_bookings(a, [b], s)
+    eligibility.assert_not_called()
+    c.config.apobj.notify.assert_not_called()
+
+
+@pytest.mark.parametrize('product_type', [None, {}, [], 'pt_show', {'id': None}, {'id': 'pt_'}, {'id': 'invalid'}])
+def test_malformed_type_does_not_block_valid_show_or_hide_error(context, monkeypatch, product_type):
+    a, b, w, s, p = context
+    monkeypatch.setattr(c, 'availability_products', Mock(return_value=[
+        {'id': 'broken', 'title': 'Malformed', 'type': product_type},
+        {'id': w.product, 'title': 'Headliner', 'type': {'id': 'pt_show'}}]))
+    monkeypatch.setattr(c, 'availability_eligibility', Mock(return_value=capture('headliner')))
+    assert not c.process_availability_bookings(a, [b], replace(s, watches=(replace(w, product=None),)))
+    c.config.apobj.notify.assert_called_once()
+    assert 'Headliner:' in c.config.apobj.notify.call_args.kwargs['body']
+
+
+def test_skipped_type_change_preserves_previous_notification(context, monkeypatch):
+    a, b, w, s, p = context
+    w = replace(w, product=None, notify_on_reopen=True)
+    ctx = a, b, w, s, p
+    deliver(ctx)
+    before = sqlite3.connect(s.state_file)
+    original = before.execute('SELECT * FROM availability_v1').fetchall()
+    before.close()
+    monkeypatch.setattr(c, 'availability_products', Mock(return_value=[
+        {'id': 'Y7QG', 'title': 'Changed type', 'type': {'id': 'pt_activity'}}]))
+    assert c.process_availability_bookings(a, [b], replace(s, watches=(w,)))
+    after = sqlite3.connect(s.state_file)
+    assert after.execute('SELECT * FROM availability_v1').fetchall() == original
+    after.close()
+    deliver(ctx)
+    assert c.config.apobj.notify.call_count == 1

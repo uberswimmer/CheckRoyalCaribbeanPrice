@@ -119,6 +119,14 @@ paginated `WebProductsByCategory` query. Offerings and guest restrictions come f
 POST /en/royal/web/commerce-api/eligibility/v1/eligibility
 ```
 
+Royal's entertainment catalog can also contain products in other categories, such
+as escape-room experiences. Automatic show discovery logs and skips products with
+an explicit different `pt_` category; these do not cause a failed check or a show
+release alert. A missing/malformed type remains unknown, and an explicitly watched
+product with a category mismatch still reports an error. Skipping a product does
+not clear its existing notification history. This watcher does not monitor escape
+room availability.
+
 No cart addition, booking confirmation, cancellation, or purchase is performed.
 The watcher does not call `/cart/v1/price`: your captured conflict and no-conflict
 quotes differed only in offering IDs and did not validate inventory.

@@ -3983,11 +3983,25 @@ def process_availability_bookings(account: AccountInfo, bookings: list, settings
             if watch.product:
                 products = [p for p in products if p["id"] == watch.product]
             results = []
+            skipped = 0
             for product in products:
                 pid = product["id"]
                 title = product.get("title") or pid
-                if (product.get("type") or {}).get("id") != "pt_" + watch.category:
-                    results.append(AvailabilityResult(pid, title, "unknown", "unexpected product type"))
+                product_type = product.get("type")
+                type_id = product_type.get("id") if isinstance(product_type, dict) else None
+                if not isinstance(type_id, str) or not type_id.startswith("pt_") or len(type_id) <= 3:
+                    results.append(AvailabilityResult(pid, title, "unknown", "missing or malformed product type"))
+                    continue
+                if type_id != "pt_" + watch.category:
+                    if watch.product:
+                        results.append(AvailabilityResult(pid, title, "unknown", "unexpected product type: " + type_id))
+                    else:
+                        # Royal's category pages can contain other product types,
+                        # such as escape rooms alongside shows. Do not query those
+                        # using pt_show or mistake them for an unavailable show.
+                        log(f"[Availability] {watch.name} / {title}: skipped "
+                            f"(catalog type {type_id}; watching pt_{watch.category})")
+                        skipped += 1
                     continue
                 try:
                     payload = availability_eligibility(account, booking, watch, pid, party)
@@ -3999,6 +4013,9 @@ def process_availability_bookings(account: AccountInfo, bookings: list, settings
                 results.append(AvailabilityResult(watch.product, watch.name, "unavailable", "product not listed"))
             if not products and not watch.product:
                 log(f"[Availability] {watch.name}: no entertainment products listed")
+            elif skipped and skipped == len(products):
+                log(f"[Availability] {watch.name}: no matching show products listed "
+                    f"({skipped} other-category products skipped)")
             # Previously seen shows that disappear from a complete catalog are
             # genuinely absent. Errors/partial pages never reach this branch.
             if not watch.product and not settings.dry_run and Path(settings.state_file).expanduser().exists():
@@ -4007,6 +4024,8 @@ def process_availability_bookings(account: AccountInfo, bookings: list, settings
                     exists = db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='availability_v1'").fetchone()
                     if exists:
                         prior = db.execute("SELECT product FROM availability_v1 WHERE scope=?", (scope,)).fetchall()
+                        # Retain skipped/unknown IDs so a type change cannot re-arm
+                        # a previously acknowledged show as if it disappeared.
                         current = {p["id"] for p in products}
                         results.extend(AvailabilityResult(pid, pid, "unavailable", "product no longer listed")
                                        for (pid,) in prior if pid not in current)
