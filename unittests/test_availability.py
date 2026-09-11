@@ -512,11 +512,11 @@ def test_validate_cli_makes_no_requests(tmp_path):
 
 @pytest.mark.parametrize('dry_run', [True, False])
 def test_discovery_skips_other_category_without_error_or_notification(context, monkeypatch, dry_run):
-    # Synthetic types: the Star screenshot reports a mismatch, not the actual IDs.
+    # pt_onboardActivities is confirmed by the sanitized Star console output.
     a, b, w, s, p = context
     w = replace(w, product=None)
     products = [
-        {'id': 'escape-1', 'title': 'Escape room', 'type': {'id': 'pt_activity'}},
+        {'id': 'escape-1', 'title': 'Escape room', 'type': {'id': 'pt_onboardActivities'}},
         {'id': 'dinner-1', 'title': 'Experience dinner', 'type': {'id': 'pt_dining'}},
     ]
     monkeypatch.setattr(c, 'availability_products', Mock(return_value=products))
@@ -533,7 +533,7 @@ def test_discovery_skips_other_category_without_error_or_notification(context, m
 def test_mixed_catalog_still_checks_and_notifies_matching_show(context, monkeypatch):
     a, b, w, s, p = context
     products = [
-        {'id': 'escape-1', 'title': 'Escape room', 'type': {'id': 'pt_activity'}},
+        {'id': 'escape-1', 'title': 'Escape room', 'type': {'id': 'pt_onboardActivities'}},
         {'id': w.product, 'title': 'Headliner', 'type': {'id': 'pt_show'}},
     ]
     monkeypatch.setattr(c, 'availability_products', Mock(return_value=products))
@@ -658,3 +658,167 @@ def test_availability_console_uses_status_colors_and_groups_times(context):
     assert any(c.RED + 'Error: Unknown' in line for line in lines)
     assert any('19:15, 21:30' in line and line.startswith('      ') for line in lines)
     assert not any('2099-10-10T' in line for line in lines)
+
+
+@pytest.mark.parametrize('failure', ['check', 'missing_booking', 'booking_lookup'])
+def test_combined_failure_finishes_price_outputs_and_marks_run_failed(context, monkeypatch, failure):
+    a, b = setup_combined_console(context, monkeypatch)
+    c.config.history = Mock()
+    c.config.output_watch_as_json = True
+    events = []
+    bookings = [b] if failure == 'check' else ([] if failure == 'missing_booking' else None)
+    monkeypatch.setattr(c, 'get_voyages', Mock(return_value=bookings))
+    monkeypatch.setattr(c, 'get_cruise_price', Mock(side_effect=lambda *a, **k: events.append('prospective')))
+    monkeypatch.setattr(c, 'process_availability_bookings', Mock(return_value=failure != 'check'))
+    monkeypatch.setattr(c.CheckinPaymentTracker, 'print_table', lambda self: events.append('summary'))
+    monkeypatch.setattr(c, 'write_watch_price_json', Mock(side_effect=lambda *a: events.append('export')))
+    with pytest.raises(c.AvailabilityUnknown):
+        c.main()
+    assert events == ['prospective', 'summary', 'export']
+    assert c.config.history.finish_run.call_args.args[0] == 'error'
+    a.access.session.close.assert_called_once()
+    if failure == 'missing_booking':
+        assert any('Configured reservations were not found' in call.args[0] for call in c.log_warn.call_args_list)
+
+
+def test_combined_missing_booking_is_resolved_across_accounts(context, monkeypatch):
+    a, b = setup_combined_console(context, monkeypatch)
+    c.config.history = Mock()
+    c.config.prospective_cruises = []
+    second = replace(a, username='second@example.invalid', access=c.APIAccess('fake', 'second', Mock()))
+    c.config.accounts.append(second)
+    monkeypatch.setattr(c, 'get_voyages', Mock(side_effect=[[], [b]]))
+    monkeypatch.setattr(c, 'process_availability_bookings', Mock(return_value=True))
+    c.main()
+    c.config.history.finish_run.assert_called_once_with('ok')
+    assert not any('Configured reservations were not found' in call.args[0] for call in c.log_warn.call_args_list)
+
+
+def test_catalog_reused_between_watches_but_eligibility_and_later_runs_are_fresh(context, monkeypatch):
+    a, b, w, s, p = context
+    second = replace(w, id='second', mode='party', guests=party_for(capture('headliner')))
+    settings = replace(s, dry_run=True, watches=(w, second))
+    catalog = Mock(return_value=[{'id':w.product, 'title':'Show', 'type':{'id':'pt_show'}}])
+    monkeypatch.setattr(c, 'availability_products', catalog)
+    eligibility = Mock(return_value=capture('headliner'))
+    monkeypatch.setattr(c, 'availability_eligibility', eligibility)
+    for _ in range(2):
+        assert c.process_availability_bookings(a, [b], settings)
+    assert catalog.call_count == 2
+    assert eligibility.call_count == 4
+    assert eligibility.call_args_list[0].args[2].mode == 'release'
+    assert eligibility.call_args_list[1].args[2].mode == 'party'
+
+
+def test_catalog_failure_is_shared_within_run_and_retried_next_run(context, monkeypatch):
+    a, b, w, s, p = context
+    settings = replace(s, watches=(w, replace(w, id='second')))
+    deliver(context)
+    catalog = Mock(side_effect=[c.AvailabilityUnknown('temporary error'), []])
+    monkeypatch.setattr(c, 'availability_products', catalog)
+    assert not c.process_availability_bookings(a, [b], settings)
+    catalog.assert_called_once()
+    deliver(context)
+    c.config.apobj.notify.assert_called_once()
+    assert c.process_availability_bookings(a, [b], settings)
+    assert catalog.call_count == 2
+
+
+def test_catalog_cache_isolated_by_account_booking_and_category(context, monkeypatch):
+    a, b, w, s, p = context
+    settings = replace(s, dry_run=True, watches=(w,
+        replace(w, id='other-booking', reservation='booking-2'),
+        replace(w, id='dining', category='dining', product='SAMPLE_DINING')))
+    other_booking = dict(b, bookingId='booking-2')
+    catalog = Mock(return_value=[])
+    monkeypatch.setattr(c, 'availability_products', catalog)
+    for account in (a, replace(a, username='other@example.invalid')):
+        assert c.process_availability_bookings(account, [b, other_booking], settings)
+    assert catalog.call_count == 6
+
+
+@pytest.mark.parametrize('change, expected', [
+    (lambda d:d.update(dryrun=True), 'availability: unrecognized configuration key(s): dryrun'),
+    (lambda d:d['watches'][0].update(mod='release'), 'availability.watches[0]: unrecognized configuration key(s): mod'),
+    (lambda d:d['watches'][0].update(enabled='false'), 'availability.watches[0]: enabled must be true or false'),
+    (lambda d:d['watches'][0].update(guests=[{'id':'test','reservationID':'SECRET_VALUE'}]), 'availability.watches[0].guests[0]: unrecognized configuration key(s): reservationID'),
+    (lambda d:d['watches'][0].update(reservation=None), 'availability.watches[0]: reservation must be a nonempty identifier'),
+])
+def test_config_diagnostics_identify_location_without_echoing_values(change, expected):
+    raw = valid_config()
+    change(raw)
+    with pytest.raises(ValueError) as exc:
+        c.parse_availability_config(raw)
+    assert str(exc.value) == expected
+    assert 'SECRET_VALUE' not in str(exc.value)
+
+
+@pytest.mark.parametrize('failure, traceback_expected', [
+    (c.AvailabilityUnknown('incomplete availability check'), False),
+    (RuntimeError('unexpected programming error'), True),
+])
+def test_cli_error_dispatch_keeps_nonzero_exit_without_expected_failure_traceback(monkeypatch, failure, traceback_expected):
+    from io import StringIO
+    from unittest.mock import MagicMock
+    monkeypatch.setattr(c, 'VALIDATE_CONFIG_ONLY', False, raising=False)
+    monkeypatch.setattr(c, 'get_config_path', Mock(return_value='unused.yaml'))
+    monkeypatch.setattr(c, 'load_config_objects', Mock(return_value=c.config))
+    monkeypatch.setattr(c, 'main', Mock(side_effect=failure))
+    monkeypatch.setattr(c.traceback, 'print_exc', Mock())
+    c.config.notify_on_error = True
+    c.config.apobj = MagicMock()
+    c.config.apobj.__len__.return_value = 1
+    stderr = StringIO()
+    monkeypatch.setattr(c.sys, 'stderr', stderr)
+    with pytest.raises(SystemExit) as exc:
+        c.cli()
+    assert exc.value.code == 1
+    assert str(failure) in stderr.getvalue()
+    assert c.traceback.print_exc.called is traceback_expected
+    c.config.apobj.notify.assert_called_once()
+
+
+def test_http_status_diagnostic_does_not_expose_response_body(context, monkeypatch):
+    a, *_ = context
+    monkeypatch.setattr(c, '_execute_api_request', Mock(return_value=Mock(status_code=401,
+        json=Mock(return_value={'token':'DO_NOT_LOG'}))))
+    with pytest.raises(c.AvailabilityUnknown) as exc:
+        c.availability_json(a, 'GET', 'https://example.invalid')
+    assert str(exc.value) == 'Royal API returned HTTP 401'
+
+
+def test_missing_notifier_diagnostic_remains_retryable(context):
+    c.config.apobj = None
+    assert not deliver(context)
+    assert any('No notification service configured' in call.args[0] for call in c.log_warn.call_args_list)
+    c.config.apobj = Mock()
+    c.config.apobj.notify.return_value = True
+    assert deliver(context)
+    c.config.apobj.notify.assert_called_once()
+
+
+def test_state_storage_diagnostic_is_actionable_and_does_not_expose_exception(context, monkeypatch):
+    a, b, w, s, p = context
+    monkeypatch.setattr(c, 'availability_products', Mock(return_value=[]))
+    monkeypatch.setattr(c, 'deliver_availability', Mock(side_effect=PermissionError('PRIVATE_PATH')))
+    assert not c.process_availability_bookings(a, [b], s)
+    messages = '\n'.join(call.args[0] for call in c.log_warn.call_args_list)
+    assert 'check availability.stateFile and directory permissions' in messages
+    assert 'PRIVATE_PATH' not in messages
+
+
+def test_combined_failure_does_not_skip_later_accounts(context, monkeypatch):
+    a, b = setup_combined_console(context, monkeypatch)
+    c.config.history = Mock()
+    c.config.prospective_cruises = []
+    second = replace(a, username='second@example.invalid', access=c.APIAccess('fake', 'second', Mock()))
+    c.config.accounts.append(second)
+    monkeypatch.setattr(c, 'get_voyages', Mock(return_value=[b]))
+    checks = Mock(side_effect=[False, True])
+    monkeypatch.setattr(c, 'process_availability_bookings', checks)
+    with pytest.raises(c.AvailabilityUnknown):
+        c.main()
+    assert [call.args[0] for call in checks.call_args_list] == [a, second]
+    assert c.config.history.finish_run.call_args.args[0] == 'error'
+    a.access.session.close.assert_called_once()
+    second.access.session.close.assert_called_once()

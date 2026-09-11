@@ -5,8 +5,8 @@
 The 0.1.0-test source build is complete and ready for a diagnostic run in a separate
 container. Review and offline validation passed. GitHub Actions also passed the
 native Docker build, Compose validation, and container configuration/entrypoint
-smoke test on September 10, 2026. Live Royal Caribbean authentication/eligibility
-calls remain unverified.
+smoke test on September 10, 2026. Live entertainment discovery has since been confirmed. Dining, party restrictions,
+and notification persistence across container recreation still require host validation.
 This is a test build, not a claim of production or booking success.
 
 ## Scope reviewed
@@ -96,3 +96,29 @@ API call, notification, cron execution, or ARM64 runtime behavior.
 Royal Railway's `9999` stock signal is not interpreted as a literal seat count or
 proof of a table for seven. These captures validate reported inventory and restrictions,
 not checkout. The watcher does not reserve, purchase, modify, or cancel anything.
+
+## Upstream-readiness refinements
+
+The proposed readiness change addresses combined-mode failure propagation,
+configuration diagnostics and per-run catalog reuse. Price
+summaries and JSON exports finish before an availability failure marks the run as
+failed. Expected availability failures preserve the existing error notification
+and nonzero exit behavior without a traceback; programming errors retain theirs.
+
+The review specifically checks that caches do not cross accounts or runs, that
+eligibility remains per-watch, and that a failed check does not skip later accounts.
+State paths retain their existing working-directory-relative behavior; use an absolute
+path for a stable location. No path migration or account-deduplication policy is
+introduced. The existing absolute Docker state path is unaffected. The command-line
+handler is a directly testable function, without source parsing in the tests.
+
+Live entertainment discovery is now confirmed by user-provided console results.
+The mixed-catalog tests include the observed `pt_onboardActivities` category.
+Remaining host validation: actual notification receipt, suppression of repeats
+across reruns and container recreation, and live dining/party-aware scenarios.
+An upstream submission still needs the maintainer's configuration-design preference
+and a contribution branch excluding fork-specific deployment material.
+
+Local verification of the readiness changes: **346 tests passed**, including
+18 additional regression cases, with the same existing dependency deprecation warning.
+Remote Python and container validation results are recorded on the refinement PR.
