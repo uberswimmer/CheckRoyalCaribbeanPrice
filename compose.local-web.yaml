@@ -1,0 +1,49 @@
+# Portainer stack. Set CHECKER_IMAGE and REPORT_IMAGE to the published fork images.
+# See LOCAL-WEB-SETUP.md. No OPNsense proxy or Watchtower service is required here.
+services:
+  cruise-availability-checker:
+    image: ${CHECKER_IMAGE:?Set CHECKER_IMAGE to your fork checker image}
+    container_name: cruise-availability-checker
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ:-America/New_York}
+      CRON_SCHEDULE: ${CRON_SCHEDULE:-0 7,19 * * *}
+    volumes:
+      - type: bind
+        source: ${CHECKER_HOME:-/home/docker/cruise-availability-checker}/config.availability.yaml
+        target: /app/config.yaml
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${CHECKER_HOME:-/home/docker/cruise-availability-checker}/data
+        target: /app/data
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+  cruise-reports:
+    image: ${REPORT_IMAGE:?Set REPORT_IMAGE to your fork reports image}
+    container_name: cruise-reports
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m,mode=1777
+    ports:
+      - "${LAN_IP:?Set LAN_IP to your Docker server LAN address}:${REPORT_PORT:-8088}:8080"
+    volumes:
+      - type: bind
+        source: ${CHECKER_HOME:-/home/docker/cruise-availability-checker}/data/public
+        target: /srv/exports
+        read_only: true
+        bind:
+          create_host_path: false
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
