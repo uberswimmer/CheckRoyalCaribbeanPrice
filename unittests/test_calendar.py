@@ -16,7 +16,7 @@ def calendar(tmp_path, monkeypatch):
     monkeypatch.setattr(c, 'log', Mock())
     monkeypatch.setattr(c, 'log_warn', Mock())
     monkeypatch.setattr(c, '_execute_api_request', Mock(side_effect=AssertionError('Unmocked network call')))
-    sailing = c.CalendarSailing('IC', '20991010', 'America/New_York')
+    sailing = c.CalendarSailing('IC', '20991010')
     settings = c.CalendarSettings((sailing,), str(tmp_path/'calendar'))
     account = c.AccountInfo('calendar@example.invalid', 'NOT_A_PASSWORD')
     account.access = c.APIAccess('NOT_A_TOKEN', 'fake-account', Mock())
@@ -33,7 +33,11 @@ def calendar(tmp_path, monkeypatch):
                           'arrivalDateTime': '20991013T060000', 'departureDateTime': '20991013T235959'}},
     ]}}
     checkin = {'checkWindowOpenStartDateTime': '2099-08-26T00:00:00.000Z', 'isCheckinAvailable': False}
-    fetch = Mock(side_effect=lambda account, url: copy.deepcopy(checkin if url.endswith('/enriched') else itinerary))
+    fetch = Mock(side_effect=lambda account, url: copy.deepcopy(itinerary))
+    def existing_checkin(*args):
+        raw = checkin.get('checkWindowOpenStartDateTime')
+        return ('Opens' if raw else 'Open now', datetime.fromisoformat(raw.replace('Z','+00:00')) if raw else None)
+    monkeypatch.setattr(c, 'get_checkin_info', Mock(side_effect=existing_checkin))
     monkeypatch.setattr(c, 'calendar_sailing_payload', fetch)
     return settings, account, booking, itinerary, checkin, fetch
 
@@ -71,14 +75,14 @@ def test_generation_excludes_sea_days_and_ignores_placeholders(calendar):
         assert all(secret not in data for secret in ['PRIVATE_BOOKING','PRIVATE_GUEST','NOT_A_PASSWORD','NOT_A_TOKEN','calendar@example.invalid'])
 
 
-@pytest.mark.parametrize('opening, expected', [('2099-08-26T00:00:00.000Z','20990826T040100Z'),
-                                              ('2099-01-15T00:00:00.000Z','20990115T050100Z')])
-def test_checkin_uses_written_date_at_0001_departure_zone(calendar, opening, expected):
+@pytest.mark.parametrize('opening, expected', [('2099-08-26T00:00:00-04:00','20990826T040000Z'),
+                                              ('2099-01-15T00:00:00-05:00','20990115T050000Z')])
+def test_checkin_preserves_existing_datetime_without_clock_adjustment(calendar, opening, expected):
     calendar[4]['checkWindowOpenStartDateTime'] = opening
     export = run_capture(calendar)
     row = next(r for r in events(export) if 'Check-in' in r['SUMMARY'])
     assert row['DTSTART'] == expected
-    assert '00:01 in America/New_York' in row['DESCRIPTION']
+    assert 'No time adjustment' in row['DESCRIPTION']
 
 
 def test_updates_keep_uid_and_increment_only_changed_event(calendar):
@@ -129,7 +133,8 @@ def test_linked_accounts_dedupe_itinerary_and_bookings_but_keep_distinct_cabins(
     export.capture(replace(calendar[1], username='second@example.invalid'),
                    [calendar[2], dict(calendar[2], bookingId='ANOTHER_BOOKING', stateroomNumber='5678')])
     export.finish()
-    assert calendar[5].call_count == 2
+    assert calendar[5].call_count == 1
+    c.get_checkin_info.assert_called_once()
     assert len([r for r in events(export) if 'Final payment' in r['SUMMARY']]) == 2
     assert len([r for r in events(export) if 'Visit' in r['SUMMARY']]) == 1
 
@@ -197,8 +202,8 @@ def test_ics_escaping_and_unicode_folding():
     assert text.startswith('BEGIN:VCALENDAR\r\n') and text.endswith('END:VCALENDAR\r\n')
 
 
-@pytest.mark.parametrize('raw', [[], {'enabled':'true'}, {'sailings':[]}, {'sailings':[{'ship':'IC','sailDate':'2099-10-10','departureTimeZone':'BAD_ZONE'}]},
-    {'sailings':[{'ship':'IC','sailDate':'bad','departureTimeZone':'UTC'}]}])
+@pytest.mark.parametrize('raw', [[], {'enabled':'true'}, {'sailings':[]}, {'sailings':[{'ship':'IC','sailDate':'2099-10-10','unknownOption':True}]},
+    {'sailings':[{'ship':'IC','sailDate':'bad'}]}])
 def test_invalid_config_is_rejected_without_io(raw):
     with pytest.raises(ValueError): c.parse_calendar_config(raw)
 
@@ -206,7 +211,7 @@ def test_invalid_config_is_rejected_without_io(raw):
 def test_disabled_and_valid_config(tmp_path):
     assert c.parse_calendar_config(None) is None
     assert c.parse_calendar_config({'enabled':False}) is None
-    raw = {'outputDirectory':str(tmp_path/'does-not-exist'), 'sailings':[{'ship':'IC','sailDate':'2099-10-10','departureTimeZone':'America/New_York'}]}
+    raw = {'outputDirectory':str(tmp_path/'does-not-exist'), 'sailings':[{'ship':'IC','sailDate':'2099-10-10'}]}
     result = c.parse_calendar_config(raw)
     assert result.sailings[0].key == 'IC20991010'
     assert not Path(result.output_directory).exists()
@@ -269,3 +274,31 @@ def test_confirmed_cancellation_without_itinerary_marks_existing_events(calendar
     assert set(canceled.data['events']) == set(first.data['events'])
     assert all(row['STATUS'] == 'CANCELLED' for row in events(canceled))
     assert all(e['sequence'] == 1 for e in canceled.data['events'].values())
+
+
+def test_normal_run_reuses_summary_datetime_without_checkin_request(calendar):
+    opening = datetime.fromisoformat('2099-08-26T00:00:00-04:00')
+    c.get_checkin_info.side_effect = AssertionError('duplicate check-in request')
+    export = run_capture(calendar, payment_rows=[{'dedupe_key':'PRIVATE_BOOKING|20991010',
+        'checkin_opening':opening,'final_payment':date(2099,7,1),'balance_due':False}])
+    c.get_checkin_info.assert_not_called()
+    row = next(r for r in events(export) if 'Check-in' in r['SUMMARY'])
+    assert row['DTSTART'] == '20990826T040000Z'
+    assert calendar[5].call_count == 1
+
+
+def test_normal_run_does_not_refetch_when_already_checked_in(calendar):
+    c.get_checkin_info.side_effect = AssertionError('duplicate check-in request')
+    export = run_capture(calendar, payment_rows=[{'dedupe_key':'PRIVATE_BOOKING|20991010',
+        'checkin_opening':None,'final_payment':date(2099,7,1),'balance_due':False}])
+    c.get_checkin_info.assert_not_called()
+    assert not any('Check-in' in r['SUMMARY'] for r in events(export))
+
+
+def test_summary_deduplication_preserves_opening_datetime():
+    tracker = c.CheckinPaymentTracker()
+    tracker.record_row({'dedupe_key':'same','checkin_label':'Boarding 11:30','checkin_opening':None,'balance_due':False})
+    opening = datetime(2099,8,26,tzinfo=timezone.utc)
+    tracker.record_row({'dedupe_key':'same','checkin_label':'Opens','checkin_opening':opening,'balance_due':False})
+    assert len(tracker.rows) == 1
+    assert tracker.rows[0]['checkin_opening'] == opening

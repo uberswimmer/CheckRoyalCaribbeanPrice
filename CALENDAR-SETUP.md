@@ -16,14 +16,12 @@ calendar:
   sailings:
     - ship: IC
       sailDate: "2099-10-10" # Fictional example; use your sailing date
-      departureTimeZone: America/New_York
 ```
 
-Use Royal's two-letter ship code and an IANA departure-port time-zone name. The
-zone is required per sailing; the checker does not guess it from the Docker TZ.
-The `tzdata` dependency supplies the database on systems without OS time-zone data.
-Existing configurations without `calendar` behave unchanged. Relative output paths
-remain relative to the working directory, like the existing output settings.
+Use Royal's two-letter ship code and the sailing date. Existing configurations
+without `calendar` behave unchanged. Relative output paths remain relative to the
+working directory, like the existing output settings. No separate calendar
+time-zone setting or additional runtime dependency is needed.
 
 For the existing Portainer deployment, `/app/data` is already persistent. The
 calendar files therefore appear in its host `data/calendar` subdirectory. No
@@ -37,9 +35,12 @@ all availability watches are disabled. `availability.dryRun` applies only to
 availability notifications/state; an enabled calendar export writes its own files.
 
 Only the configured sailings found in authenticated Royal Caribbean bookings are
-captured. The checker reuses its existing login session. It requests itinerary and
-check-in information once per sailing per run, even for multiple linked accounts
-or cabins. These are two additional read requests; no carts or bookings are changed.
+captured. The checker reuses its existing login session. It requests the itinerary
+once per sailing per run, even for multiple linked accounts or cabins. Normal runs
+reuse the check-in datetime already collected for the final summary table and make
+no additional check-in request. Availability-only runs skip that table, so calendar
+export calls the existing `get_checkin_info` routine once per sailing instead.
+No alternate check-in endpoint or date parser is introduced.
 
 ## Events and times
 
@@ -53,18 +54,18 @@ or cabins. These are two additional read requests; no carts or bookings are chan
   retains its deadline with a Paid description. In availability-only mode, payment
   status uses booking fields and `reservationsPaidInFull`; the price ledger is not
   fetched just for the calendar, so the status may be unknown.
-- Check-in: 00:01 on the opening date in the configured departure-port zone,
-  converted to a UTC calendar instant with daylight-saving rules. Its description
-  retains the local date/time and zone. This is a scheduled opening, not confirmation
-  that Royal has enabled check-in.
+- Check-in: the exact timezone-aware datetime returned by the existing checker.
+  The same instant is serialized as UTC in the calendar. No 00:01 override, date
+  extraction, or departure-zone reinterpretation is applied. When the existing
+  summary shows midnight, the calendar retains that midnight instant. A calendar
+  client in another time zone may display the corresponding local time. This is
+  the reported opening, not confirmation that Royal has enabled check-in.
 
-**Check-in field validation is pending a website comparison.** The first build uses
-the written date portion of `checkWindowOpenStartDateTime`, then applies 00:01 in
-the departure zone. It does not convert Royal's midnight marker through the host
-zone, which could shift the date backward. Verify that written date against the
-website before relying on the check-in event. If Royal supplies no opening date,
-no date is invented. Once an opening was captured, it remains when Royal later
-reports check-in open without a date.
+The existing check-in function remains the source of truth. The summary now retains
+its returned datetime alongside the existing display label, instead of discarding
+it. If no datetime is returned, no opening is invented; a previously captured opening
+is retained. This also covers already checked-in bookings whose normal run skips
+another check-in lookup. No additional website capture is required for check-in.
 
 Itinerary events use *floating* calendar times: the published clock values remain
 unchanged when viewed in another zone. They are labeled published local time,
@@ -96,26 +97,24 @@ if writing the latter fails, a later run can regenerate it from saved capture da
 A corrupt/unreadable capture is an error, not an instruction to reset history.
 Back up both files together if moving the installation.
 
-The capture retains selected itinerary fields, the original opening timestamp,
+The capture retains selected itinerary fields, the existing checker's opening datetime,
 deadline source/status, capture timestamps and calendar revision data. It does not
 store credentials, session tokens, raw booking numbers, passenger lists or prices.
 Sailing details, cabin numbers and configured friendly labels are personal travel
 information. Opaque booking hashes are identifiers, not access controls. Keep both
 files outside Git and defer sharing until calendar access is configured.
 
-## Requested verification capture
-
-For one future sailing whose check-in is not yet open:
-
-1. Screenshot the displayed opening date, ship, sail date and departure port.
-2. In Firefox Network, reload the page and filter for `voyages` or `enriched`.
-3. Locate `/ships/voyages/<ship code><YYYYMMDD>/enriched`; save its response JSON
-   and copy the request URL. No headers, cookies or authentication tokens are needed.
-4. An optional cropped screenshot of the website's final-payment deadline provides
-   an independent comparison. Personal names, booking numbers and amounts can be
-   removed. If no deadline is shown, the existing config override remains usable.
+## Validation
 
 Itinerary request fields and clock values were confirmed against one live Royal
-response and its matching Cruise Planner screenshot. Automated tests use fictional
-sailings; live check-in date semantics and importing into Apple Calendar still need
-validation. Calendar hosting and notifications are outside this PR.
+response and its matching Cruise Planner screenshot. The existing checker's summary
+already reports the check-in opening date/time, which is reused directly. Automated
+tests cover reuse without extra requests, preservation of midnight and UTC offsets,
+linked bookings, stale-data retention, updates and serialization. Importing the
+result into Apple Calendar is still a useful deployment check. No additional Royal
+website captures are required to implement this reuse. Hosting remains deferred.
+
+The availability console section uses separate spacer records between sections
+and watches, nested indentation for account/watch/result/time, and reports completion
+before the check-in/payment table. Failures still allow price summaries and exports
+to finish before the run exits nonzero.

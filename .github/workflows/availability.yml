@@ -30,7 +30,7 @@ jobs:
           config = yaml.safe_load(open('SAMPLE-availability-config.yaml'))
           config.pop('apprise', None)
           config['calendar'] = {'outputDirectory': '/app/data/calendar', 'sailings': [
-              {'ship': 'IC', 'sailDate': '2099-10-10', 'departureTimeZone': 'America/New_York'}]}
+              {'ship': 'IC', 'sailDate': '2099-10-10'}]}
           with open('config.availability.yaml', 'w') as f:
               yaml.safe_dump(config, f)
           PY

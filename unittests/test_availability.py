@@ -822,3 +822,24 @@ def test_combined_failure_does_not_skip_later_accounts(context, monkeypatch):
     assert c.config.history.finish_run.call_args.args[0] == 'error'
     a.access.session.close.assert_called_once()
     second.access.session.close.assert_called_once()
+
+
+def test_availability_section_spacing_and_completion_precede_summary(context, monkeypatch):
+    from io import StringIO
+    import logging
+    a, b = setup_combined_console(context, monkeypatch)
+    c.config.availability = replace(c.config.availability, watches=(replace(c.config.availability.watches[0], product=None),))
+    stream = StringIO()
+    logger = logging.Logger('availability-spacing')
+    logger.addHandler(logging.StreamHandler(stream))
+    monkeypatch.setattr(c, 'log', c.EasyLogger(logger))
+    monkeypatch.setattr(c, 'log_warn', c.log.warn)
+    monkeypatch.setattr(c, 'get_voyages', Mock(return_value=[b]))
+    monkeypatch.setattr(c, 'get_cruise_price', Mock(side_effect=lambda *a, **k: c.log('Last price result')))
+    monkeypatch.setattr(c, 'availability_products', Mock(return_value=[]))
+    monkeypatch.setattr(c.CheckinPaymentTracker, 'print_table', lambda self: c.log('Upcoming Check-In & Final Payment Dates'))
+    c.main()
+    text = c.StripAnsiFilter.ANSI_REGEX.sub('', stream.getvalue())
+    assert 'Last price result\n \nReservation Availability Watches\n \n' in text
+    assert '\n    headliner\n      No entertainment products listed' in text
+    assert 'Availability checks completed successfully\n \nUpcoming Check-In' in text

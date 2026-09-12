@@ -27,7 +27,6 @@ import sqlite3
 import sys
 import traceback
 import tempfile
-from zoneinfo import ZoneInfo
 import time
 import yaml
 
@@ -789,6 +788,8 @@ class CheckinPaymentTracker:
                     existing["past_final_payment"] = row["past_final_payment"]
                 if existing.get("checkin_label") in (None, "TBD") and row.get("checkin_label") not in (None, "TBD"):
                     existing["checkin_label"] = row["checkin_label"]
+                if existing.get("checkin_opening") is None and row.get("checkin_opening") is not None:
+                    existing["checkin_opening"] = row["checkin_opening"]
                 return
         self.rows.append(row)
 
@@ -1661,11 +1662,12 @@ def get_voyages(
 
         # log Boarding Info or call fallback check-in handler, capturing a short
         # check-in label for the end-of-run summary table
+        checkin_opening = None
         if metrics['checkin_string']:
             log(metrics['checkin_string'])
             checkin_label = f"Boarding {metrics.get('boarding_time')}" if metrics.get('boarding_time') else "Checked in"
         else:
-            checkin_label, _ = get_checkin_info(account_info, reservation_ID, passenger_ID, ship_code, sail_date, apobj)
+            checkin_label, checkin_opening = get_checkin_info(account_info, reservation_ID, passenger_ID, ship_code, sail_date, apobj)
 
         # Process Dining Setup
         result = get_dining_and_prices(account_info, booking)
@@ -1746,6 +1748,7 @@ def get_voyages(
                     "reservation": summary_reservation,
                     "sail_date": sail_date,
                     "checkin_label": checkin_label or "TBD",
+                    "checkin_opening": checkin_opening,
                     "final_payment": final_payment_date,
                     "past_final_payment": date.today() > final_payment_date,
                     "balance_due": balance_due,
@@ -3865,7 +3868,7 @@ def deliver_availability(settings: AvailabilitySettings, account: AccountInfo, b
     """
     for r in results:
         color = {"available": GREEN, "unavailable": YELLOW, "unknown": RED}[r.state]
-        log(f"    {color}{r.title}: {r.state.capitalize()}{RESET} ({r.reason})")
+        log(f"      {color}{r.title}: {r.state.capitalize()}{RESET} ({r.reason})")
         if r.times:
             by_date = {}
             for stamp in r.times:
@@ -3873,9 +3876,9 @@ def deliver_availability(settings: AvailabilitySettings, account: AccountInfo, b
                 day = config.format_date(when.strftime("%Y%m%d"))
                 by_date.setdefault(day, []).append(when.strftime("%H:%M"))
             for day, times in by_date.items():
-                log(f"      {day}: {', '.join(times)}")
+                log(f"        {day}: {', '.join(times)}")
     if settings.dry_run:
-        log(f"    {YELLOW}Availability dry run: no availability notifications or state changes{RESET}")
+        log(f"      {YELLOW}Availability dry run: no availability notifications or state changes{RESET}")
         return not any(r.state == "unknown" for r in results)
     path = Path(settings.state_file).expanduser()
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -3932,7 +3935,7 @@ def deliver_availability(settings: AvailabilitySettings, account: AccountInfo, b
                 else:
                     reason = ("No notification service configured; configure apprise for availability alerts"
                               if notifier is None else "Notification not confirmed; will retry on a later check")
-                    log_warn(f"    {RED}{reason}{RESET}")
+                    log_warn(f"      {RED}{reason}{RESET}")
             db.commit()
         except Exception:
             db.rollback()
@@ -3948,7 +3951,7 @@ def process_availability_bookings(account: AccountInfo, bookings: list, settings
         raise AvailabilityUnknown("invalid booking list")
     if not any(w.enabled for w in settings.watches):
         return True
-    log(f"\n  {account.friendly_name} for user {account.username}")
+    log(f"  {account.friendly_name} for user {account.username}")
     healthy = True
     # Per-account and per-run only. Cache complete catalogs (or their failure),
     # not eligibility, which depends on the watch's configured party.
@@ -3956,10 +3959,11 @@ def process_availability_bookings(account: AccountInfo, bookings: list, settings
     for watch in settings.watches:
         if not watch.enabled:
             continue
-        log(f"\n  {BLUE}{watch.name}{RESET}")
+        log(" ")
+        log(f"    {BLUE}{watch.name}{RESET}")
         matches = [b for b in bookings if str(b.get("bookingId")) == watch.reservation]
         if not matches:
-            log(f"    {YELLOW}Reservation not found in this account; no state change{RESET}")
+            log(f"      {YELLOW}Reservation not found in this account; no state change{RESET}")
             continue
         try:
             if len(matches) != 1:
@@ -3968,7 +3972,7 @@ def process_availability_bookings(account: AccountInfo, bookings: list, settings
             if any(not booking.get(k) for k in ("bookingId", "passengerId", "shipCode", "sailDate")):
                 raise AvailabilityUnknown("incomplete booking context")
             if availability_date(booking["sailDate"]) < date.today():
-                log("    Departed sailing skipped")
+                log("      Departed sailing skipped")
                 continue
             party = availability_party(watch, booking)
             # Complete the whole catalog before declaring a product absent.
@@ -4001,7 +4005,7 @@ def process_availability_bookings(account: AccountInfo, bookings: list, settings
                         # Royal's category pages can contain other product types,
                         # such as escape rooms alongside shows. Do not query those
                         # using pt_show or mistake them for an unavailable show.
-                        log(f"    {title}: skipped "
+                        log(f"      {title}: skipped "
                             f"(catalog type {type_id}; watching pt_{watch.category})")
                         skipped += 1
                     continue
@@ -4014,9 +4018,9 @@ def process_availability_bookings(account: AccountInfo, bookings: list, settings
             if watch.product and not products:
                 results.append(AvailabilityResult(watch.product, watch.name, "unavailable", "product not listed"))
             if not products and not watch.product:
-                log(f"    {YELLOW}No entertainment products listed{RESET}")
+                log(f"      {YELLOW}No entertainment products listed{RESET}")
             elif skipped and skipped == len(products):
-                log(f"    {YELLOW}No matching show products listed "
+                log(f"      {YELLOW}No matching show products listed "
                     f"({skipped} other-category products skipped){RESET}")
             # Previously seen shows that disappear from a complete catalog are
             # genuinely absent. Errors/partial pages never reach this branch.
@@ -4040,7 +4044,7 @@ def process_availability_bookings(account: AccountInfo, bookings: list, settings
                 reason = f"state storage error ({type(exc).__name__}); check availability.stateFile and directory permissions"
             else:
                 reason = type(exc).__name__
-            log_warn(f"    {RED}Unknown ({reason}); state not advanced{RESET}")
+            log_warn(f"      {RED}Unknown ({reason}); state not advanced{RESET}")
             healthy = False
     return healthy
 
@@ -4054,11 +4058,15 @@ def finish_availability_run(settings: AvailabilitySettings, found_reservations: 
     if not healthy:
         raise AvailabilityUnknown("One or more availability checks or notifications failed; see status lines")
     if any(w.enabled for w in settings.watches):
-        log(f"\n  {GREEN}Availability checks completed successfully{RESET}")
+        log(" ")
+        log(f"  {GREEN}Availability checks completed successfully{RESET}")
+        log(" ")
 
 
 def run_availability_only(settings: AvailabilitySettings, calendar_export: Optional[CalendarExport] = None) -> None:
-    log(f"\n{BLUE}Reservation Availability Watches{RESET}")
+    log(" ")
+    log(f"{BLUE}Reservation Availability Watches{RESET}")
+    log(" ")
     if not config.accounts:
         raise ValueError("Availability-only mode requires accountInfo")
     if not any(w.enabled for w in settings.watches) and calendar_export is None:
@@ -4109,7 +4117,6 @@ def run_availability_only(settings: AvailabilitySettings, calendar_export: Optio
 class CalendarSailing:
     ship: str
     sail_date: str
-    departure_timezone: str
 
     @property
     def key(self) -> str:
@@ -4144,20 +4151,18 @@ def parse_calendar_config(raw: Any) -> Optional[CalendarSettings]:
     sailings = []
     for index, item in enumerate(items):
         try:
-            if not isinstance(item, dict) or set(item) != {"ship", "sailDate", "departureTimeZone"}:
+            if not isinstance(item, dict) or set(item) != {"ship", "sailDate"}:
                 raise ValueError()
             ship = item["ship"]
             if not isinstance(ship, str) or not re.fullmatch(r"[A-Z]{2}", ship):
                 raise ValueError()
             sailing_date = availability_date(item["sailDate"]).strftime("%Y%m%d")
-            zone = item["departureTimeZone"]
-            ZoneInfo(zone)
-            sailing = CalendarSailing(ship, sailing_date, zone)
+            sailing = CalendarSailing(ship, sailing_date)
             if any(s.key == sailing.key for s in sailings):
                 raise ValueError()
             sailings.append(sailing)
         except (ValueError, TypeError, KeyError):
-            raise ValueError(f"calendar.sailings[{index}]: supply a unique ship/sailDate and valid IANA departureTimeZone") from None
+            raise ValueError(f"calendar.sailings[{index}]: supply a unique ship and valid sailDate") from None
     return CalendarSettings(tuple(sailings), directory)
 
 
@@ -4282,12 +4287,12 @@ class CalendarExport:
     def __init__(self, settings: CalendarSettings):
         self.settings = settings
         self.directory = Path(settings.output_directory)
-        self.data = {"version": 1, "sailings": {}, "events": {}}
+        self.data = {"version": 2, "sailings": {}, "events": {}}
         path = self.directory / "calendar-data.json"
         try:
             if path.exists():
                 self.data = json.loads(path.read_text())
-                if self.data.get("version") != 1 or not isinstance(self.data.get("sailings"), dict) or not isinstance(self.data.get("events"), dict):
+                if self.data.get("version") != 2 or not isinstance(self.data.get("sailings"), dict) or not isinstance(self.data.get("events"), dict):
                     raise ValueError()
         except (OSError, ValueError, TypeError, AttributeError):
             raise CalendarError("cannot read calendar-data.json; existing files preserved") from None
@@ -4310,9 +4315,9 @@ class CalendarExport:
                 continue
             self.found.add(sailing.key)
             record = self.data["sailings"].setdefault(sailing.key, {"payments": {}})
-            record["departureTimeZone"] = sailing.departure_timezone
             record.setdefault("shipName", sailing.ship)
-            if sailing.key not in self.attempted:
+            first_capture = sailing.key not in self.attempted
+            if first_capture:
                 self.attempted.add(sailing.key)
                 base = "https://aws-prd.api.rccl.com/en/royal/web/v3/ships"
                 try:
@@ -4327,20 +4332,28 @@ class CalendarExport:
                     record.update(itineraryCapturedAt=self.now, shipName=info.get("shipName") or sailing.ship)
                 except (CalendarError, ValueError, KeyError, TypeError, AttributeError):
                     self.problem(sailing, "itinerary capture failed")
-                try:
-                    info = calendar_sailing_payload(account, f"{base}/voyages/{sailing.key}/enriched")
-                    raw = info.get("checkWindowOpenStartDateTime")
-                    # Interpret the published opening marker as a date, not
-                    # a conversion through the Docker host's zone. Live UI verification
-                    # of this date is required before enabling the feature.
-                    if raw:
-                        opening = datetime.fromisoformat(raw.replace("Z", "+00:00")).date()
-                        record["checkin"] = {"date": opening.isoformat(), "rawOpeningTimestamp": raw, "capturedAt": self.now}
-                    elif not isinstance(info.get("isCheckinAvailable"), bool):
-                        raise CalendarError("missing check-in status")
-                    # No date once open must not delete a previously captured date.
-                except (CalendarError, ValueError, KeyError, TypeError, AttributeError):
-                    self.problem(sailing, "check-in capture failed")
+            try:
+                opening = None
+                if payment_rows is not None:
+                    # Normal runs already collected this datetime for the summary.
+                    keys = {f"{b['bookingId']}|{b['sailDate']}" for b in matches}
+                    opening = next((r.get("checkin_opening") for r in payment_rows
+                                    if r.get("dedupe_key") in keys and r.get("checkin_opening") is not None), None)
+                elif first_capture:
+                    # Availability-only skips the price summary. Reuse the existing
+                    # checker routine here rather than implementing another parser.
+                    booking = matches[0]
+                    checkin_label, opening = get_checkin_info(account, booking["bookingId"], booking["passengerId"],
+                                                              sailing.ship, sailing.sail_date, notifier_for(account))
+                    if not checkin_label:
+                        self.problem(sailing, "existing check-in lookup failed")
+                if opening is not None:
+                    if not isinstance(opening, datetime) or opening.utcoffset() is None:
+                        raise CalendarError("check-in opening lacks an explicit offset")
+                    record["checkin"] = {"opening": opening.isoformat(), "capturedAt": self.now}
+                # Checked-in/open/no-date results do not erase an earlier opening.
+            except (CalendarError, ValueError, KeyError, TypeError, AttributeError):
+                self.problem(sailing, "existing check-in result unavailable")
             for booking in matches:
                 try:
                     reservation = str(booking["bookingId"])
@@ -4390,11 +4403,11 @@ class CalendarExport:
                     fields["DTEND"] = port["end"]
                 add(sailing.key + "|port|" + str(port["day"]), fields)
             if record.get("checkin"):
-                day = date.fromisoformat(record["checkin"]["date"])
-                start = datetime.combine(day, datetime.min.time()).replace(hour=0, minute=1, tzinfo=ZoneInfo(sailing.departure_timezone))
+                start = datetime.fromisoformat(record["checkin"]["opening"])
                 add(sailing.key + "|checkin", {"SUMMARY": label + ": Check-in opens",
                     "DTSTART": start.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ"), "TRANSP": "TRANSPARENT",
-                    "DESCRIPTION": f"Scheduled for 00:01 in {sailing.departure_timezone} on {day}. Based on Royal's published opening date; not confirmation that check-in is currently available."})
+                    "DESCRIPTION": "Opening time from the checker's existing check-in result. "
+                                   "No time adjustment is applied; not confirmation that check-in is currently available."})
             for key, payment in record["payments"].items():
                 status = {True: "Balance due", False: "Paid", None: "Payment status unknown", "TA_UNKNOWN": "Contact travel agent for balance"}.get(payment["balance"], "Payment status unknown")
                 add(sailing.key + "|payment|" + key, {"SUMMARY": label + ": Final payment - " + payment["label"],
@@ -4888,11 +4901,20 @@ def main() -> None:
             # Safely release the connection socket resources back to the OS
             anon_session.close()
 
+        availability_error = None
         if availability_enabled:
-            log(f"\n{BLUE}Reservation Availability Watches{RESET}")
+            log(" ")
+            log(f"{BLUE}Reservation Availability Watches{RESET}")
+            log(" ")
             for account_info, bookings in deferred_availability:
                 if not process_availability_bookings(account_info, bookings, config.availability):
                     availability_healthy = False
+            try:
+                finish_availability_run(config.availability, availability_found, availability_healthy)
+            except AvailabilityUnknown as exc:
+                # Report within this section, but still finish price summaries/exports.
+                availability_error = exc
+                log(" ")
 
         # Summary table of upcoming check-in and final-payment dates for booked sailings
         payment_tracker.print_table()
@@ -4904,10 +4926,8 @@ def main() -> None:
         if calendar_export is not None:
             calendar_export.finish()
 
-        if availability_enabled:
-            # Finish price summaries/exports first; do not label a partial
-            # availability failure as an entirely successful combined run.
-            finish_availability_run(config.availability, availability_found, availability_healthy)
+        if availability_error is not None:
+            raise availability_error
         config.history.finish_run("ok")
 
     except Exception as e:
