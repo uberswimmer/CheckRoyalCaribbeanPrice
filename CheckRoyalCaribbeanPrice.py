@@ -4127,8 +4127,9 @@ class CalendarSailing:
 
 @dataclass(frozen=True)
 class CalendarSettings:
-    sailings: Tuple[CalendarSailing, ...]
+    sailings: Tuple[CalendarSailing, ...] = ()
     output_directory: str = "data/calendar"
+    reservations: Tuple[str, ...] = ()
 
 
 class CalendarError(Exception):
@@ -4138,8 +4139,8 @@ class CalendarError(Exception):
 def parse_calendar_config(raw: Any) -> Optional[CalendarSettings]:
     if raw is None:
         return None
-    if not isinstance(raw, dict) or set(raw) - {"enabled", "outputDirectory", "sailings"}:
-        raise ValueError("calendar: expected enabled, outputDirectory and sailings")
+    if not isinstance(raw, dict) or set(raw) - {"enabled", "outputDirectory", "sailings", "reservations"}:
+        raise ValueError("calendar: expected enabled, outputDirectory and either reservations or sailings")
     if not isinstance(raw.get("enabled", True), bool):
         raise ValueError("calendar.enabled must be true or false")
     if not raw.get("enabled", True):
@@ -4147,6 +4148,21 @@ def parse_calendar_config(raw: Any) -> Optional[CalendarSettings]:
     directory = raw.get("outputDirectory", "data/calendar")
     if not isinstance(directory, str) or not directory.strip():
         raise ValueError("calendar.outputDirectory must be a directory path")
+    if "reservations" in raw:
+        if "sailings" in raw:
+            raise ValueError("calendar: use reservations or sailings, not both")
+        items = raw["reservations"]
+        if not isinstance(items, list) or not items:
+            raise ValueError("calendar.reservations must be a nonempty list")
+        reservations = []
+        for index, item in enumerate(items):
+            if isinstance(item, bool) or not isinstance(item, (str, int)):
+                raise ValueError(f"calendar.reservations[{index}]: supply a reservation number")
+            number = str(item).strip()
+            if not re.fullmatch(r"[0-9]+", number) or int(number) == 0 or number in reservations:
+                raise ValueError(f"calendar.reservations[{index}]: supply a unique reservation number")
+            reservations.append(number)
+        return CalendarSettings(output_directory=directory, reservations=tuple(reservations))
     items = raw.get("sailings")
     if not isinstance(items, list) or not items:
         raise ValueError("calendar.sailings must be a nonempty list")
@@ -4299,10 +4315,36 @@ class CalendarExport:
                     raise ValueError()
         except (OSError, ValueError, TypeError, AttributeError):
             raise CalendarError("cannot read calendar-data.json; existing files preserved") from None
+        # Persist only opaque selector hashes, so temporarily missing bookings can
+        # retain their itinerary without storing raw reservation numbers.
+        bindings = self.data.setdefault("reservations", {})
+        if not isinstance(bindings, dict) or any(
+            not isinstance(key, str) or not re.fullmatch(r"[0-9a-f]{64}", key)
+            or not isinstance(value, str) or not re.fullmatch(r"[A-Z]{2}[0-9]{8}", value)
+            for key, value in bindings.items()
+        ):
+            raise CalendarError("cannot read calendar reservation bindings; existing files preserved")
+        # Switching from ship/date selection can reuse saved payment identities.
+        for reservation in settings.reservations:
+            binding = hashlib.sha256(reservation.encode()).hexdigest()
+            if binding not in bindings:
+                for key, record in self.data["sailings"].items():
+                    payment = hashlib.sha256((key + "|" + reservation).encode()).hexdigest()
+                    if payment in record.get("payments", {}):
+                        bindings[binding] = key
+                        break
+        self.found_reservations = set()
         self.attempted = set()
         self.found = set()
         self.healthy = True
         self.now = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
+    def selected_sailings(self) -> Tuple[CalendarSailing, ...]:
+        if not self.settings.reservations:
+            return self.settings.sailings
+        keys = {self.data["reservations"].get(hashlib.sha256(r.encode()).hexdigest())
+                for r in self.settings.reservations}
+        return tuple(CalendarSailing(key[:2], key[2:]) for key in sorted(k for k in keys if k))
 
     def problem(self, sailing: CalendarSailing, message: str) -> None:
         self.healthy = False
@@ -4311,7 +4353,23 @@ class CalendarExport:
     def capture(self, account: AccountInfo, bookings: list, payment_rows: Optional[list] = None) -> None:
         if not account.is_royal:
             return
-        for sailing in self.settings.sailings:
+        if self.settings.reservations:
+            bookings = [b for b in bookings if isinstance(b, dict)
+                        and str(b.get("bookingId")) in self.settings.reservations]
+            for booking in bookings:
+                try:
+                    ship = booking.get("shipCode")
+                    if not isinstance(ship, str) or not re.fullmatch(r"[A-Z]{2}", ship):
+                        raise ValueError()
+                    sailing = CalendarSailing(ship, availability_date(booking.get("sailDate")).strftime("%Y%m%d"))
+                    reservation = str(booking["bookingId"])
+                    binding = hashlib.sha256(reservation.encode()).hexdigest()
+                    self.data["reservations"][binding] = sailing.key
+                    self.found_reservations.add(reservation)
+                except (ValueError, TypeError, KeyError):
+                    # The finish step reports unresolved selectors without exposing IDs.
+                    continue
+        for sailing in self.selected_sailings():
             matches = [b for b in bookings if isinstance(b, dict) and b.get("shipCode") == sailing.ship
                        and str(b.get("sailDate", "")).replace("-", "") == sailing.sail_date]
             if not matches:
@@ -4389,12 +4447,23 @@ class CalendarExport:
             events[uid] = old if old and old["fields"] == fields else {
                 "fields": fields, "sequence": old["sequence"] + 1 if old else 0, "modified": self.now}
 
-        for sailing in self.settings.sailings:
-            if sailing.key not in self.found:
+        if self.settings.reservations:
+            for index, reservation in enumerate(self.settings.reservations):
+                if reservation not in self.found_reservations:
+                    self.healthy = False
+                    log_warn(f"{YELLOW}[Calendar] reservations[{index}] not found with a valid ship/date in retrieved Royal bookings; previous data retained{RESET}")
+        selected = self.selected_sailings()
+        for sailing in selected:
+            if not self.settings.reservations and sailing.key not in self.found:
                 self.problem(sailing, "configured sailing not found in retrieved bookings")
             record = self.data["sailings"].get(sailing.key)
             if not record:
                 continue
+            if self.settings.reservations:
+                payment_keys = {hashlib.sha256((sailing.key + "|" + r).encode()).hexdigest()
+                                for r in self.settings.reservations
+                                if self.data["reservations"].get(hashlib.sha256(r.encode()).hexdigest()) == sailing.key}
+                record["payments"] = {k: p for k, p in record["payments"].items() if k in payment_keys}
             ship = record["shipName"]
             label = f"{ship} ({availability_date(sailing.sail_date).isoformat()})"
             for port in record.get("ports", []):
@@ -4416,7 +4485,9 @@ class CalendarExport:
                 add(sailing.key + "|payment|" + key, {"SUMMARY": label + ": Final payment - " + payment["label"],
                     "DTSTART;VALUE=DATE": payment["date"].replace("-", ""), "TRANSP": "TRANSPARENT",
                     "DESCRIPTION": payment["source"] + ". " + status})
-        self.data["sailings"] = {s.key: self.data["sailings"][s.key] for s in self.settings.sailings if s.key in self.data["sailings"]}
+        self.data["sailings"] = {s.key: self.data["sailings"][s.key] for s in selected if s.key in self.data["sailings"]}
+        selected_bindings = {hashlib.sha256(r.encode()).hexdigest() for r in self.settings.reservations}
+        self.data["reservations"] = {k: v for k, v in self.data["reservations"].items() if k in selected_bindings}
         self.data["events"] = events
         try:
             contents = calendar_ics(events)

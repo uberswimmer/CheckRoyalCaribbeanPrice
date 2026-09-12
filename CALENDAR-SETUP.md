@@ -7,18 +7,28 @@ through the separate service described in [local web setup](LOCAL-WEB-SETUP.md).
 
 ## Configuration
 
-Add this block to your existing configuration, substituting your booked sailing:
+Add this block to your existing configuration, substituting your reservation numbers:
 
 ```yaml
 calendar:
   enabled: true
   outputDirectory: /app/data/calendar
-  sailings:
-    - ship: IC
-      sailDate: "2099-10-10" # Fictional example; use your sailing date
+  reservations:
+    - "1000001" # Fictional examples; use your reservation numbers
+    - "1000002"
 ```
 
-Use Royal's two-letter ship code and the sailing date. Existing configurations
+The checker resolves the ship and sailing date from the bookings already retrieved
+for your configured Royal Caribbean accounts. No additional booking-discovery API
+call is needed. Only listed reservations are included. If you want payment deadlines
+for multiple cabins, list each reservation; cabins on the same sailing share one
+itinerary and check-in event. Quoted numbers are recommended; YAML integers also work.
+An enabled calendar requires a nonempty selection, so omitting it does not include
+all bookings automatically.
+
+The earlier `sailings` list of `{ship: IC, sailDate: "2099-10-10"}` entries remains
+supported for selecting every retrieved booking on those sailings. Use either
+`reservations` or `sailings`, not both. Existing configurations
 without `calendar` behave unchanged. Relative output paths remain relative to the
 working directory, like the existing output settings. No separate calendar
 time-zone setting or additional runtime dependency is needed.
@@ -34,7 +44,7 @@ in both the normal combined run and `availability.only: true`. It still works wh
 all availability watches are disabled. `availability.dryRun` applies only to
 availability notifications/state; an enabled calendar export writes its own files.
 
-Only the configured sailings found in authenticated Royal Caribbean bookings are
+Only selected bookings/sailings found in authenticated Royal Caribbean accounts are
 captured. The checker reuses its existing login session. It requests the itinerary
 once per sailing per run, even for multiple linked accounts or cabins. Normal runs
 reuse the check-in datetime already collected for the final summary table and make
@@ -88,9 +98,15 @@ Missing bookings do not imply cancellation or deletion. Capture failures are log
 and produce a failed run status after price outputs and calendar generation.
 Successfully captured sections can still update while failed sections retain older
 data. A confirmed canceled sailing marks its events canceled, even if Royal no longer
-returns an itinerary. Removing a sailing from the configuration
-removes its events on the next export; disabling export leaves existing files alone.
-Bookings that disappear remain in the local capture until their sailing is removed.
+returns an itinerary. Removing a reservation removes its payment event on the next
+export. The shared itinerary/check-in remain while another selected reservation uses
+that sailing. A selected reservation that temporarily disappears retains its saved
+calendar data and produces a warning identifying its list index. A confirmed change
+to that reservation's ship/date moves its calendar selection to the new sailing.
+With the older ship/date selection, removing a sailing removes all its events.
+Disabling export leaves private files alone; local web publishing removes the public
+feed on the next reported run. Missing selected bookings are retained until removed
+from the selection, rather than being inferred canceled.
 
 Each file is replaced atomically. The JSON capture is written before the `.ics`;
 if writing the latter fails, a later run can regenerate it from saved capture data.
@@ -98,7 +114,8 @@ A corrupt/unreadable capture is an error, not an instruction to reset history.
 Back up both files together if moving the installation.
 
 The capture retains selected itinerary fields, the existing checker's opening datetime,
-deadline source/status, capture timestamps and calendar revision data. It does not
+deadline source/status, capture timestamps, calendar revision data and hashed
+reservation-to-sailing bindings used to retain data when a booking is missing. It does not
 store credentials, session tokens, raw booking numbers, passenger lists or prices.
 Sailing details, cabin numbers and configured friendly labels are personal travel
 information. Opaque booking hashes are identifiers, not access controls. Keep both

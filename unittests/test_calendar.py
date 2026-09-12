@@ -217,8 +217,11 @@ def test_disabled_and_valid_config(tmp_path):
     assert not Path(result.output_directory).exists()
 
 
-def test_capture_works_with_availability_only_and_all_watches_disabled(calendar, monkeypatch):
+@pytest.mark.parametrize('by_reservation', [False, True])
+def test_capture_works_with_availability_only_and_all_watches_disabled(calendar, monkeypatch, by_reservation):
     settings, account, booking, *_ = calendar
+    if by_reservation:
+        settings = reservation_settings(calendar)
     c.config.accounts = [account]
     monkeypatch.setattr(c, 'login', Mock(return_value=account.access))
     monkeypatch.setattr(c, 'availability_json', Mock(return_value={'payload':{'profileBookings':[booking]}}))
@@ -231,8 +234,11 @@ def test_capture_works_with_availability_only_and_all_watches_disabled(calendar,
 
 
 @pytest.mark.parametrize('failed', [False, True])
-def test_main_exports_after_prices_and_reports_calendar_failure(calendar, monkeypatch, failed):
+@pytest.mark.parametrize('by_reservation', [False, True])
+def test_main_exports_after_prices_and_reports_calendar_failure(calendar, monkeypatch, failed, by_reservation):
     settings, account, booking, *_ = calendar
+    if by_reservation:
+        settings = reservation_settings(calendar)
     c.config.calendar = settings
     c.config.accounts = [account]
     c.config.history = Mock()
@@ -302,3 +308,108 @@ def test_summary_deduplication_preserves_opening_datetime():
     tracker.record_row({'dedupe_key':'same','checkin_label':'Opens','checkin_opening':opening,'balance_due':False})
     assert len(tracker.rows) == 1
     assert tracker.rows[0]['checkin_opening'] == opening
+
+
+def reservation_settings(calendar, *numbers):
+    return c.CalendarSettings(output_directory=calendar[0].output_directory,
+                              reservations=numbers or ('PRIVATE_BOOKING',))
+
+
+def test_reservation_selection_uses_existing_bookings_and_excludes_other_cabins(calendar):
+    export = c.CalendarExport(reservation_settings(calendar))
+    export.capture(calendar[1], [calendar[2], dict(calendar[2], bookingId='UNSELECTED_BOOKING', stateroomNumber='5678'),
+                                dict(calendar[2], bookingId='OTHER_SAILING', shipCode='ST')])
+    export.finish()
+    assert len([r for r in events(export) if 'Final payment' in r['SUMMARY']]) == 1
+    assert not any('5678' in str(r) for r in events(export))
+    calendar[5].assert_called_once()
+    c.get_checkin_info.assert_called_once()
+    for path in export.directory.iterdir():
+        assert all(value not in path.read_text() for value in ['PRIVATE_BOOKING', 'UNSELECTED_BOOKING', 'OTHER_SAILING'])
+
+
+def test_selected_reservations_on_same_sailing_share_itinerary_and_remove_only_unselected_payment(calendar):
+    settings = reservation_settings(calendar, 'PRIVATE_BOOKING', 'SECOND_BOOKING')
+    second = dict(calendar[2], bookingId='SECOND_BOOKING', stateroomNumber='5678')
+    first = c.CalendarExport(settings)
+    first.capture(calendar[1], [calendar[2]])
+    first.capture(calendar[1], [calendar[2], second])
+    first.finish()
+    assert calendar[5].call_count == 1
+    assert len([r for r in events(first) if 'Final payment' in r['SUMMARY']]) == 2
+    updated = c.CalendarExport(reservation_settings(calendar))
+    updated.capture(calendar[1], [calendar[2], second])
+    updated.finish()
+    assert len([r for r in events(updated) if 'Final payment' in r['SUMMARY']]) == 1
+    shared = {uid: row for uid, row in first.data['events'].items() if 'Final payment' not in row['fields']['SUMMARY']}
+    assert all(updated.data['events'][uid] == row for uid, row in shared.items())
+
+
+def test_missing_selected_reservation_preserves_prior_feed_and_warns_without_raw_number(calendar):
+    settings = reservation_settings(calendar)
+    first = c.CalendarExport(settings)
+    first.capture(calendar[1], [calendar[2]])
+    first.finish()
+    missing = c.CalendarExport(settings)
+    missing.capture(calendar[1], [])
+    with pytest.raises(c.CalendarError, match='incomplete'):
+        missing.finish()
+    assert missing.data['events'] == first.data['events']
+    assert 'reservations[0]' in str(c.log_warn.call_args)
+    assert 'PRIVATE_BOOKING' not in str(c.log_warn.call_args)
+
+
+def test_missing_one_of_two_selected_cabins_is_not_hidden_by_shared_itinerary(calendar):
+    export = c.CalendarExport(reservation_settings(calendar, 'PRIVATE_BOOKING', 'MISSING'))
+    export.capture(calendar[1], [calendar[2]])
+    with pytest.raises(c.CalendarError):
+        export.finish()
+    assert 'reservations[1]' in str(c.log_warn.call_args)
+    assert events(export)
+
+
+def test_switch_from_sailing_selection_preserves_ids_even_if_booking_temporarily_missing(calendar):
+    first = run_capture(calendar)
+    updated = c.CalendarExport(reservation_settings(calendar))
+    with pytest.raises(c.CalendarError):
+        updated.finish()
+    assert updated.data['events'] == first.data['events']
+
+
+def test_changed_sailing_for_selected_reservation_replaces_previous_sailing(calendar):
+    settings = reservation_settings(calendar)
+    first = c.CalendarExport(settings)
+    first.capture(calendar[1], [calendar[2]])
+    first.finish()
+    calendar[3]['shipCode'] = 'ST'
+    updated = c.CalendarExport(settings)
+    updated.capture(calendar[1], [dict(calendar[2], shipCode='ST')])
+    updated.finish()
+    assert set(updated.data['sailings']) == {'ST20991010'}
+    assert not (set(updated.data['events']) & set(first.data['events']))
+
+
+def test_malformed_booking_identity_does_not_erase_reservation_calendar(calendar):
+    settings = reservation_settings(calendar)
+    first = c.CalendarExport(settings)
+    first.capture(calendar[1], [calendar[2]])
+    first.finish()
+    updated = c.CalendarExport(settings)
+    updated.capture(calendar[1], [dict(calendar[2], sailDate='invalid')])
+    with pytest.raises(c.CalendarError):
+        updated.finish()
+    assert updated.data['events'] == first.data['events']
+
+
+@pytest.mark.parametrize('raw', [[], '', [True], [False], [0], [-1], [1.5], [None], [{}], ['bad'], ['123','123'], [123,'123']])
+def test_reservation_config_rejects_invalid_or_duplicate_numbers(raw):
+    with pytest.raises(ValueError, match='calendar.reservations'):
+        c.parse_calendar_config({'reservations':raw})
+
+
+def test_reservation_config_accepts_quoted_numbers_and_integers_without_io(tmp_path):
+    settings = c.parse_calendar_config({'reservations':['1000001', 1000002], 'outputDirectory':str(tmp_path/'new')})
+    assert settings.reservations == ('1000001','1000002') and not settings.sailings
+    assert not Path(settings.output_directory).exists()
+    with pytest.raises(ValueError, match='not both'):
+        c.parse_calendar_config({'reservations':['1000001'], 'sailings':[]})

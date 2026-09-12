@@ -30,8 +30,7 @@ jobs:
           config = yaml.safe_load(open('SAMPLE-availability-config.yaml'))
           config.pop('apprise', None)
           config['reportDirectory'] = '/app/data/public'
-          config['calendar'] = {'outputDirectory': '/app/data/calendar', 'sailings': [
-              {'ship': 'IC', 'sailDate': '2099-10-10'}]}
+          config['calendar'] = {'outputDirectory': '/app/data/calendar', 'reservations': ['1000001']}
           with open('config.availability.yaml', 'w') as f:
               yaml.safe_dump(config, f)
           PY

@@ -31,9 +31,8 @@ The calendar's private capture directory should remain separate:
 calendar:
   enabled: true
   outputDirectory: /app/data/calendar
-  sailings:
-    - ship: IC
-      sailDate: "2099-10-10" # Fictional example; substitute your booked sailing
+  reservations:
+    - "1000001" # Fictional example; substitute your reservation number
 ```
 
 There is still only one configuration file mounted at `/app/config.yaml`. See
