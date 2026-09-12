@@ -26,6 +26,8 @@ except ImportError:
 import sqlite3
 import sys
 import traceback
+import tempfile
+from zoneinfo import ZoneInfo
 import time
 import yaml
 
@@ -572,6 +574,7 @@ class CruiseAppConfig:
     minimum_saving_alert: Optional[float] = None
     show_promos: bool = False
     availability: Optional["AvailabilitySettings"] = None
+    calendar: Optional["CalendarSettings"] = None
 
     # Complex Objects
     accounts: List[AccountInfo] = field(default_factory=list)
@@ -1689,44 +1692,7 @@ def get_voyages(
         all_included_flag = False
         cruise_paid_price_from_API = result.get("prices", [])
 
-        # Extract direct YAML overrides for this reservation ID (if configured)
-        # The full reservation_price_paid structure will get extracted later
-        yaml_payment_override = None
-        if isinstance(reservation_price_paid, list):
-            for res_entry in reservation_price_paid:
-                if str(reservation_ID) == str(res_entry.get("reservation")):
-                    yaml_payment_override = (
-                        res_entry.get("finalPaymentDaysBeforeSailing")
-                        or res_entry.get("finalPaymentDate")
-                    )
-                    break
-        elif isinstance(reservation_price_paid, dict) and str(reservation_ID) in reservation_price_paid:
-            res_entry = reservation_price_paid.get(str(reservation_ID))
-            if isinstance(res_entry, dict):
-                yaml_payment_override = (
-                    res_entry.get("finalPaymentDaysBeforeSailing")
-                    or res_entry.get("finalPaymentDate")
-                )
-
-        # Extract booking market indicators
-        market_code = (
-            booking.get("bookingOfficeCountryCode")
-            or booking.get("bookingMarketCountryCode")
-            or booking.get("countryCode")
-        )
-
-        final_payment_override = (
-            yaml_payment_override
-            or booking.get("finalPaymentDaysBeforeSailing")
-            or booking.get("finalPaymentDate")
-        )
-
-        final_payment_date = get_final_payment_date(
-            number_of_nights,
-            sail_date,
-            market_code=market_code,
-            final_payment_date_override=final_payment_override,
-        )
+        final_payment_date, _ = booking_final_payment(booking)
         final_payment_date_display = final_payment_date.strftime(date_display_format)
 
         for cur_price in cruise_paid_price_from_API:
@@ -4091,11 +4057,11 @@ def finish_availability_run(settings: AvailabilitySettings, found_reservations: 
         log(f"\n  {GREEN}Availability checks completed successfully{RESET}")
 
 
-def run_availability_only(settings: AvailabilitySettings) -> None:
+def run_availability_only(settings: AvailabilitySettings, calendar_export: Optional[CalendarExport] = None) -> None:
     log(f"\n{BLUE}Reservation Availability Watches{RESET}")
     if not config.accounts:
         raise ValueError("Availability-only mode requires accountInfo")
-    if not any(w.enabled for w in settings.watches):
+    if not any(w.enabled for w in settings.watches) and calendar_export is None:
         log("[Availability] All watches disabled; no requests made")
         return
     healthy = True
@@ -4121,6 +4087,8 @@ def run_availability_only(settings: AvailabilitySettings) -> None:
             if not isinstance(bookings, list):
                 raise AvailabilityUnknown("missing bookings")
             found_reservations.update(str(b.get("bookingId")) for b in bookings if isinstance(b, dict))
+            if calendar_export is not None:
+                calendar_export.capture(account, bookings)
             healthy = process_availability_bookings(account, bookings, settings) and healthy
         except (AvailabilityUnknown, TypeError, AttributeError, ValueError):
             log_warn("[Availability] Account booking lookup failed; state not advanced")
@@ -4129,7 +4097,321 @@ def run_availability_only(settings: AvailabilitySettings) -> None:
             account.access.session.close()
         if index + 1 < len(config.accounts):
             time.sleep(ACCOUNT_COOLDOWN_SECONDS)
+    if calendar_export is not None:
+        calendar_export.finish()
     finish_availability_run(settings, found_reservations, healthy)
+
+
+#####################################
+# Optional local calendar export
+#####################################
+@dataclass(frozen=True)
+class CalendarSailing:
+    ship: str
+    sail_date: str
+    departure_timezone: str
+
+    @property
+    def key(self) -> str:
+        return self.ship + self.sail_date
+
+
+@dataclass(frozen=True)
+class CalendarSettings:
+    sailings: Tuple[CalendarSailing, ...]
+    output_directory: str = "data/calendar"
+
+
+class CalendarError(Exception):
+    """Calendar capture/export failed; prior data must be retained."""
+
+
+def parse_calendar_config(raw: Any) -> Optional[CalendarSettings]:
+    if raw is None:
+        return None
+    if not isinstance(raw, dict) or set(raw) - {"enabled", "outputDirectory", "sailings"}:
+        raise ValueError("calendar: expected enabled, outputDirectory and sailings")
+    if not isinstance(raw.get("enabled", True), bool):
+        raise ValueError("calendar.enabled must be true or false")
+    if not raw.get("enabled", True):
+        return None
+    directory = raw.get("outputDirectory", "data/calendar")
+    if not isinstance(directory, str) or not directory.strip():
+        raise ValueError("calendar.outputDirectory must be a directory path")
+    items = raw.get("sailings")
+    if not isinstance(items, list) or not items:
+        raise ValueError("calendar.sailings must be a nonempty list")
+    sailings = []
+    for index, item in enumerate(items):
+        try:
+            if not isinstance(item, dict) or set(item) != {"ship", "sailDate", "departureTimeZone"}:
+                raise ValueError()
+            ship = item["ship"]
+            if not isinstance(ship, str) or not re.fullmatch(r"[A-Z]{2}", ship):
+                raise ValueError()
+            sailing_date = availability_date(item["sailDate"]).strftime("%Y%m%d")
+            zone = item["departureTimeZone"]
+            ZoneInfo(zone)
+            sailing = CalendarSailing(ship, sailing_date, zone)
+            if any(s.key == sailing.key for s in sailings):
+                raise ValueError()
+            sailings.append(sailing)
+        except (ValueError, TypeError, KeyError):
+            raise ValueError(f"calendar.sailings[{index}]: supply a unique ship/sailDate and valid IANA departureTimeZone") from None
+    return CalendarSettings(tuple(sailings), directory)
+
+
+def booking_final_payment(booking: dict) -> Tuple[date, str]:
+    """Share existing pricing precedence; retain the source for calendar descriptions."""
+    reservation = str(booking.get("bookingId"))
+    configured = config.reservation_prices
+    entry = {}
+    if isinstance(configured, list):
+        entry = next((r for r in configured if str(r.get("reservation")) == reservation), {})
+    elif isinstance(configured, dict):
+        entry = configured.get(reservation, {})
+    override = (entry.get("finalPaymentDaysBeforeSailing") or entry.get("finalPaymentDate")) if isinstance(entry, dict) else None
+    source = "Configured override" if override else "Estimated from sailing duration and booking market"
+    if not override:
+        override = booking.get("finalPaymentDaysBeforeSailing") or booking.get("finalPaymentDate")
+        if override:
+            source = "Reported booking deadline"
+    market = booking.get("bookingOfficeCountryCode") or booking.get("bookingMarketCountryCode") or booking.get("countryCode")
+    return get_final_payment_date(int(booking.get("numberOfNights") or 0), booking["sailDate"],
+                                 market_code=market, final_payment_date_override=override), source
+
+
+def calendar_sailing_payload(account: AccountInfo, url: str) -> dict:
+    response = _execute_api_request(account, "GET", url, on_failure="retry")
+    if response is None or not 200 <= response.status_code < 300:
+        raise CalendarError("sailing request failed")
+    try:
+        data = response.json()
+        info = data["payload"]["sailingInfo"]
+        if isinstance(info, list):
+            if len(info) != 1:
+                raise ValueError()
+            info = info[0]
+        if not isinstance(info, dict) or not info or data.get("errors"):
+            raise ValueError()
+        return info
+    except (ValueError, KeyError, TypeError):
+        raise CalendarError("unrecognized sailing response") from None
+
+
+def calendar_port_events(info: dict) -> list:
+    """Retain published local clock values. Never infer ship time or a port zone."""
+    items = info.get("itinerary", {}).get("events")
+    if not isinstance(items, list) or not items:
+        raise CalendarError("itinerary missing or empty")
+    ports = []
+    days = set()
+    for item in items:
+        port = item["port"]
+        kind = port["portType"]
+        day = int(item["day"])
+        if day <= 0 or day in days:
+            raise CalendarError("ambiguous itinerary day")
+        days.add(day)
+        if kind == "CRUISING":
+            continue
+        if kind not in {"EMBARK", "DEBARK", "DOCKED", "TENDERED"}:
+            raise CalendarError("unrecognized itinerary event type")
+        name = port["portName"]
+        if not isinstance(name, str) or not name.strip():
+            raise CalendarError("missing port name")
+        # Ignore placeholder arrival on embarkation and departure on disembarkation.
+        start = port.get("departureDateTime") if kind == "EMBARK" else port.get("arrivalDateTime")
+        end = port.get("departureDateTime") if kind in {"DOCKED", "TENDERED"} else None
+        for stamp in (start, end) if end is not None else (start,):
+            if not isinstance(stamp, str) or not re.fullmatch(r"\d{8}T\d{6}", stamp):
+                raise CalendarError("missing or ambiguous itinerary time")
+            datetime.strptime(stamp, "%Y%m%dT%H%M%S")
+        if kind in {"DOCKED", "TENDERED"} and (end is None or end <= start):
+            raise CalendarError("invalid port visit interval")
+        ports.append({"day": day, "name": name, "type": kind, "start": start, "end": end})
+    return ports
+
+
+def calendar_ics(events: dict) -> bytes:
+    """RFC 5545 text escaping, CRLF and UTF-8-safe 75-octet line folding."""
+    def escape(value):
+        return str(value).replace("\\", "\\\\").replace("\r\n", "\n").replace("\r", "\n").replace("\n", "\\n").replace(";", "\\;").replace(",", "\\,")
+
+    lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//CheckRoyalCaribbeanPrice//Cruise Calendar//EN",
+             "CALSCALE:GREGORIAN", "X-WR-CALNAME:Cruises"]
+    for uid, event in sorted(events.items()):
+        lines.extend(["BEGIN:VEVENT", "UID:" + uid + "@cruise-calendar", "DTSTAMP:" + event["modified"],
+                      "LAST-MODIFIED:" + event["modified"], "SEQUENCE:" + str(event["sequence"])])
+        for key, value in event["fields"].items():
+            lines.append(key + ":" + (escape(value) if key in {"SUMMARY", "DESCRIPTION", "LOCATION"} else value))
+        lines.append("END:VEVENT")
+    lines.append("END:VCALENDAR")
+    folded = []
+    for line in lines:
+        part = ""
+        for char in line:
+            if len((part + char).encode("utf-8")) > 75:
+                folded.append(part)
+                part = " "
+            part += char
+        folded.append(part)
+    return ("\r\n".join(folded) + "\r\n").encode("utf-8")
+
+
+def calendar_atomic_write(path: Path, contents: bytes) -> None:
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(dir=path.parent, prefix=".calendar-", delete=False) as stream:
+            temporary = Path(stream.name)
+            stream.write(contents)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+
+
+class CalendarExport:
+    """One run's allowlisted capture. Persist previous values on failed requests.
+
+    Local files only. No credentials, raw booking numbers, passengers or amounts
+    are written. Configured friendly booking labels and cabin numbers are included. Each configured sailing is shared across accounts and cabins.
+    """
+    def __init__(self, settings: CalendarSettings):
+        self.settings = settings
+        self.directory = Path(settings.output_directory)
+        self.data = {"version": 1, "sailings": {}, "events": {}}
+        path = self.directory / "calendar-data.json"
+        try:
+            if path.exists():
+                self.data = json.loads(path.read_text())
+                if self.data.get("version") != 1 or not isinstance(self.data.get("sailings"), dict) or not isinstance(self.data.get("events"), dict):
+                    raise ValueError()
+        except (OSError, ValueError, TypeError, AttributeError):
+            raise CalendarError("cannot read calendar-data.json; existing files preserved") from None
+        self.attempted = set()
+        self.found = set()
+        self.healthy = True
+        self.now = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
+    def problem(self, sailing: CalendarSailing, message: str) -> None:
+        self.healthy = False
+        log_warn(f"{YELLOW}[Calendar] {sailing.key}: {message}; previous data retained{RESET}")
+
+    def capture(self, account: AccountInfo, bookings: list, payment_rows: Optional[list] = None) -> None:
+        if not account.is_royal:
+            return
+        for sailing in self.settings.sailings:
+            matches = [b for b in bookings if isinstance(b, dict) and b.get("shipCode") == sailing.ship
+                       and str(b.get("sailDate", "")).replace("-", "") == sailing.sail_date]
+            if not matches:
+                continue
+            self.found.add(sailing.key)
+            record = self.data["sailings"].setdefault(sailing.key, {"payments": {}})
+            record["departureTimeZone"] = sailing.departure_timezone
+            record.setdefault("shipName", sailing.ship)
+            if sailing.key not in self.attempted:
+                self.attempted.add(sailing.key)
+                base = "https://aws-prd.api.rccl.com/en/royal/web/v3/ships"
+                try:
+                    info = calendar_sailing_payload(account, f"{base}/{sailing.ship}/sailDate/{sailing.sail_date}")
+                    if info.get("shipCode") not in (None, sailing.ship):
+                        raise CalendarError("sailing identity mismatch")
+                    if info.get("canceled") is True:
+                        # Canceled sailings may no longer include an itinerary.
+                        record["canceled"] = True
+                    else:
+                        record.update(ports=calendar_port_events(info), canceled=False)
+                    record.update(itineraryCapturedAt=self.now, shipName=info.get("shipName") or sailing.ship)
+                except (CalendarError, ValueError, KeyError, TypeError, AttributeError):
+                    self.problem(sailing, "itinerary capture failed")
+                try:
+                    info = calendar_sailing_payload(account, f"{base}/voyages/{sailing.key}/enriched")
+                    raw = info.get("checkWindowOpenStartDateTime")
+                    # Interpret the published opening marker as a date, not
+                    # a conversion through the Docker host's zone. Live UI verification
+                    # of this date is required before enabling the feature.
+                    if raw:
+                        opening = datetime.fromisoformat(raw.replace("Z", "+00:00")).date()
+                        record["checkin"] = {"date": opening.isoformat(), "rawOpeningTimestamp": raw, "capturedAt": self.now}
+                    elif not isinstance(info.get("isCheckinAvailable"), bool):
+                        raise CalendarError("missing check-in status")
+                    # No date once open must not delete a previously captured date.
+                except (CalendarError, ValueError, KeyError, TypeError, AttributeError):
+                    self.problem(sailing, "check-in capture failed")
+            for booking in matches:
+                try:
+                    reservation = str(booking["bookingId"])
+                    deadline, source = booking_final_payment(booking)
+                    balance = derive_balance_due(booking, [])
+                    row = next((r for r in (payment_rows or []) if r.get("dedupe_key") == f"{reservation}|{booking['sailDate']}"), None)
+                    if row:
+                        deadline, balance = row["final_payment"], row["balance_due"]
+                    if reservation in config.paid_reservations:
+                        balance = False
+                    key = hashlib.sha256((sailing.key + "|" + reservation).encode()).hexdigest()
+                    previous = record["payments"].get(key, {})
+                    if balance not in (True, False) and previous.get("balance") in (True, False):
+                        balance = previous["balance"]
+                    name = config.reservation_names.get(reservation)
+                    if not name:
+                        name = f"Cabin {booking['stateroomNumber']}" if booking.get("stateroomNumber") else "Booking " + key[:8]
+                    record["payments"][key] = {"date": deadline.isoformat(), "source": source, "label": name,
+                                               "balance": balance, "capturedAt": self.now}
+                except (ValueError, KeyError, TypeError, AttributeError):
+                    self.problem(sailing, "payment capture failed")
+
+    def finish(self) -> None:
+        events = {}
+        def add(identity, fields):
+            if record.get("canceled"):
+                fields["STATUS"] = "CANCELLED"
+            uid = hashlib.sha256(identity.encode()).hexdigest()
+            old = self.data["events"].get(uid)
+            events[uid] = old if old and old["fields"] == fields else {
+                "fields": fields, "sequence": old["sequence"] + 1 if old else 0, "modified": self.now}
+
+        for sailing in self.settings.sailings:
+            if sailing.key not in self.found:
+                self.problem(sailing, "configured sailing not found in retrieved bookings")
+            record = self.data["sailings"].get(sailing.key)
+            if not record:
+                continue
+            ship = record["shipName"]
+            label = f"{ship} ({availability_date(sailing.sail_date).isoformat()})"
+            for port in record.get("ports", []):
+                action = {"EMBARK": "Depart", "DEBARK": "Arrive"}.get(port["type"], "Visit")
+                fields = {"SUMMARY": f"{ship}: {action} {port['name']}", "LOCATION": port["name"],
+                          "DTSTART": port["start"], "TRANSP": "TRANSPARENT",
+                          "DESCRIPTION": "Published local time. Onboard ship time may differ; follow the ship's published schedule."}
+                if port["end"]:
+                    fields["DTEND"] = port["end"]
+                add(sailing.key + "|port|" + str(port["day"]), fields)
+            if record.get("checkin"):
+                day = date.fromisoformat(record["checkin"]["date"])
+                start = datetime.combine(day, datetime.min.time()).replace(hour=0, minute=1, tzinfo=ZoneInfo(sailing.departure_timezone))
+                add(sailing.key + "|checkin", {"SUMMARY": label + ": Check-in opens",
+                    "DTSTART": start.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ"), "TRANSP": "TRANSPARENT",
+                    "DESCRIPTION": f"Scheduled for 00:01 in {sailing.departure_timezone} on {day}. Based on Royal's published opening date; not confirmation that check-in is currently available."})
+            for key, payment in record["payments"].items():
+                status = {True: "Balance due", False: "Paid", None: "Payment status unknown", "TA_UNKNOWN": "Contact travel agent for balance"}.get(payment["balance"], "Payment status unknown")
+                add(sailing.key + "|payment|" + key, {"SUMMARY": label + ": Final payment - " + payment["label"],
+                    "DTSTART;VALUE=DATE": payment["date"].replace("-", ""), "TRANSP": "TRANSPARENT",
+                    "DESCRIPTION": payment["source"] + ". " + status})
+        self.data["sailings"] = {s.key: self.data["sailings"][s.key] for s in self.settings.sailings if s.key in self.data["sailings"]}
+        self.data["events"] = events
+        try:
+            contents = calendar_ics(events)
+            self.directory.mkdir(parents=True, exist_ok=True)
+            calendar_atomic_write(self.directory / "calendar-data.json", (json.dumps(self.data, indent=2) + "\n").encode())
+            calendar_atomic_write(self.directory / "cruises.ics", contents)
+        except (OSError, ValueError, KeyError, TypeError):
+            raise CalendarError("calendar export failed; check outputDirectory and existing capture file") from None
+        log(f"[Calendar] Wrote {len(events)} events to cruises.ics")
+        if not self.healthy:
+            raise CalendarError("Calendar capture incomplete; see status lines")
 
 
 #####################################
@@ -4340,6 +4622,7 @@ def load_config_objects(config_path: str) -> CruiseAppConfig:
     # Build and return the global master config object using data.get() for fallback defaults
     config = CruiseAppConfig(
         availability=parse_availability_config(data.get("availability")),
+        calendar=parse_calendar_config(data.get("calendar")),
         display_cruise_prices=data.get("displayCruisePrices", True),
         minimum_saving_alert=minimum_saving_alert,
         notify_on_error=data.get("notifyOnError", False),
@@ -4496,9 +4779,11 @@ def main() -> None:
         if config.minimum_saving_alert is not None:
             log(YELLOW + f"Only alerting for savings >= {config.minimum_saving_alert:.2f}" + RESET)
 
+        calendar_export = CalendarExport(config.calendar) if isinstance(config.calendar, CalendarSettings) else None
+
         # Generate the list of ship codes
         if isinstance(config.availability, AvailabilitySettings) and config.availability.only:
-            run_availability_only(config.availability)
+            run_availability_only(config.availability, calendar_export)
             config.history.finish_run("ok")
             return
 
@@ -4546,6 +4831,8 @@ def main() -> None:
                    payment_tracker=payment_tracker,
                    collected_watch_rows=collected_watch_rows,
                  )
+                if calendar_export is not None and isinstance(bookings, list):
+                    calendar_export.capture(account_info, bookings, payment_tracker.rows)
                 if availability_enabled and account_info.is_royal:
                     if isinstance(bookings, list):
                         availability_found.update(str(b.get("bookingId")) for b in bookings if isinstance(b, dict))
@@ -4613,6 +4900,9 @@ def main() -> None:
         # Write the watchlist price results to JSON for external consumption
         if config.output_watch_as_json:
             write_watch_price_json(collected_watch_rows, config.output_json_watch_file)
+
+        if calendar_export is not None:
+            calendar_export.finish()
 
         if availability_enabled:
             # Finish price summaries/exports first; do not label a partial
@@ -4696,7 +4986,7 @@ def cli() -> None:
         sys.stderr.write(f"ERROR: {error_summary}\n")
         # Expected API/state failures already have per-watch diagnostics.
         # Preserve tracebacks for unexpected programming errors.
-        if not isinstance(exc, AvailabilityUnknown):
+        if not isinstance(exc, (AvailabilityUnknown, CalendarError)):
             traceback.print_exc()
 
         # Safe structural verification for notifications

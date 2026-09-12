@@ -66,3 +66,8 @@ Thanks to contributors:
 - @C2Tech-sys (A bunch of fixes, sql output, etc)
 - @RoyalCaribbeanBlog.com for featuring in an [article](https://www.royalcaribbeanblog.com/2025/04/19/cruise-price-trackers)
 - Frommers.com for featuring in an [article](https://www.frommers.com/tips/cruise/how-to-save-hundreds-on-royal-caribbeans-packages-and-excursions/)
+
+### Optional local calendar export
+
+See [Calendar setup](CALENDAR-SETUP.md) for itinerary, check-in and final-payment
+calendar generation. This is opt-in and does not host a subscription feed.
