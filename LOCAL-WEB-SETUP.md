@@ -1,8 +1,7 @@
 # Local reports and calendar subscription
 
 The optional report server serves saved files over HTTP on your LAN. It permits
-direct access without authentication. OPNsense Nginx is not involved; a reverse
-proxy can be added later if external access is wanted. Nothing is forwarded from
+direct access without authentication. Nothing is forwarded from
 the Internet by this Compose file.
 
 The checker continues using its existing schedule. A separate Nginx container
