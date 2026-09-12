@@ -23,3 +23,6 @@ __pycache__
 htmlcov/
 .DS_Store
 Thumbs.db
+# Local static report server build
+!web/
+!web/nginx.conf

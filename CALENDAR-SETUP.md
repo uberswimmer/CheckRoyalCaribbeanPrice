@@ -1,9 +1,9 @@
 # Local cruise calendar export
 
 This opt-in feature writes `cruises.ics` and an allowlisted `calendar-data.json`
-capture during the existing scheduled run. It creates no web server, subscription
-URL, external calendar events, or additional schedule. Keep calendar access/hosting
-as a separate deployment step.
+capture during the existing scheduled run. It creates no external calendar events
+or additional schedule. Optional LAN hosting and a formatted report are available
+through the separate service described in [local web setup](LOCAL-WEB-SETUP.md).
 
 ## Configuration
 
@@ -102,7 +102,8 @@ deadline source/status, capture timestamps and calendar revision data. It does n
 store credentials, session tokens, raw booking numbers, passenger lists or prices.
 Sailing details, cabin numbers and configured friendly labels are personal travel
 information. Opaque booking hashes are identifiers, not access controls. Keep both
-files outside Git and defer sharing until calendar access is configured.
+files outside Git. Optional local hosting publishes only the ICS file from this
+capture directory; it does not publish the JSON capture.
 
 ## Validation
 
@@ -112,7 +113,8 @@ already reports the check-in opening date/time, which is reused directly. Automa
 tests cover reuse without extra requests, preservation of midnight and UTC offsets,
 linked bookings, stale-data retention, updates and serialization. Importing the
 result into Apple Calendar is still a useful deployment check. No additional Royal
-website captures are required to implement this reuse. Hosting remains deferred.
+website captures are required to implement this reuse. See local web setup to
+subscribe to the generated feed from your LAN.
 
 The availability console section uses separate spacer records between sections
 and watches, nested indentation for account/watch/result/time, and reports completion

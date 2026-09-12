@@ -2,6 +2,7 @@ from __future__ import annotations
 import argparse
 import base64
 import hashlib
+import html
 import json
 import locale
 import logging
@@ -562,6 +563,7 @@ class CruiseAppConfig:
     date_display_format: Optional[str] = "%x"
     request_timeout: int = REQUEST_TIMEOUT
     log_file: Optional[str] = None
+    report_directory: Optional[str] = None
     history_db: Optional[str] = None
     output_watch_as_json: bool = False
     output_json_watch_file: Optional[str] = "output-json-watch.txt"
@@ -4264,11 +4266,12 @@ def calendar_ics(events: dict) -> bytes:
     return ("\r\n".join(folded) + "\r\n").encode("utf-8")
 
 
-def calendar_atomic_write(path: Path, contents: bytes) -> None:
+def calendar_atomic_write(path: Path, contents: bytes, mode: int = 0o600) -> None:
     temporary = None
     try:
         with tempfile.NamedTemporaryFile(dir=path.parent, prefix=".calendar-", delete=False) as stream:
             temporary = Path(stream.name)
+            os.chmod(temporary, mode)
             stream.write(contents)
             stream.flush()
             os.fsync(stream.fileno())
@@ -4425,6 +4428,126 @@ class CalendarExport:
         log(f"[Calendar] Wrote {len(events)} events to cruises.ics")
         if not self.healthy:
             raise CalendarError("Calendar capture incomplete; see status lines")
+
+
+class ReportError(Exception):
+    """An enabled local report could not be written."""
+
+
+class WebReport(logging.Handler):
+    """Bounded, latest-run export of the existing console log, with escaped HTML."""
+    MAX_CHARACTERS = 2_000_000
+    COLORS = {RED: "red", GREEN: "green", YELLOW: "yellow", BLUE: "blue"}
+
+    def __init__(self, directory: str):
+        super().__init__(logging.INFO)
+        self.directory = Path(directory)
+        self.started = datetime.now().astimezone().isoformat(timespec="seconds")
+        self.messages = []
+        self.size = 0
+        self.truncated = False
+
+    def emit(self, record: logging.LogRecord) -> None:
+        message = record.getMessage() + "\n"
+        remaining = self.MAX_CHARACTERS - self.size
+        if remaining:
+            self.messages.append(message[:remaining])
+        self.size += min(len(message), remaining)
+        self.truncated |= len(message) > remaining
+
+    def publish(self, status: str, calendar: Optional[CalendarSettings] = None, finished: bool = False) -> None:
+        self.directory.mkdir(parents=True, exist_ok=True)
+        public_calendar = self.directory / "cruises.ics"
+        calendar_error = None
+        try:
+            if finished:
+                if isinstance(calendar, CalendarSettings):
+                    source = Path(calendar.output_directory) / "cruises.ics"
+                    if source.exists():
+                        contents = source.read_bytes()
+                        # Keep modification time stable when the feed is unchanged.
+                        if not public_calendar.exists() or public_calendar.read_bytes() != contents:
+                            calendar_atomic_write(public_calendar, contents, mode=0o644)
+                else:
+                    public_calendar.unlink(missing_ok=True)
+        except OSError as exc:
+            # Calendar publication failure must not hide the run's diagnostic report.
+            calendar_error = exc
+            status = "Failed"
+            self.emit(logging.LogRecord(__name__, logging.ERROR, "", 0,
+                      "Cannot publish calendar feed; check export paths and permissions.", (), None))
+        content = "".join(self.messages)
+        if self.truncated:
+            content += "\n[Report truncated; full output remains in the container logs.]\n"
+        plain = StripAnsiFilter.ANSI_REGEX.sub("", content)
+        colored = []
+        active = False
+        cursor = 0
+        for match in StripAnsiFilter.ANSI_REGEX.finditer(content):
+            colored.append(html.escape(content[cursor:match.start()]))
+            if active:
+                colored.append("</span>")
+            color = self.COLORS.get(match.group())
+            active = color is not None
+            if active:
+                colored.append('<span class="' + color + '">')
+            cursor = match.end()
+        colored.append(html.escape(content[cursor:]))
+        if active:
+            colored.append("</span>")
+        finished_at = datetime.now().astimezone().isoformat(timespec="seconds") if finished else "Not finished"
+        calendar_link = '<a href="/cruises.ics">Calendar feed</a>' if public_calendar.exists() else "Calendar feed not generated yet"
+        page = ('<!doctype html><html lang="en"><head><meta charset="utf-8">'
+                '<meta name="viewport" content="width=device-width, initial-scale=1">'
+                '<title>Cruise checker report</title><style>'
+                'body{background:#151719;color:#e8eaed;font:16px system-ui,sans-serif;margin:24px}'
+                'h1{font-size:1.5rem}a,.blue{color:#8ab4f8}.green{color:#9cdb80}'
+                '.red{color:#ff8980}.yellow{color:#fdd663}.red,.green{font-weight:bold}'
+                'pre{background:#0c0e10;padding:16px;overflow:auto;font:13px/1.5 monospace;tab-size:8}'
+                '</style></head><body><h1>Cruise checker report</h1>'
+                '<p><strong>' + html.escape(status) + '</strong><br>Started: ' + self.started +
+                '<br>Finished: ' + finished_at + '</p>'
+                '<p>This is a saved report. Refresh to see the latest run. A run left as Running '
+                'may have been interrupted. Calendar data can retain older values after a failed check.</p>'
+                '<p>' + calendar_link + ' · <a href="/report.txt">Plain text report</a></p>'
+                '<pre>' + ''.join(colored) + '</pre></body></html>')
+        summary = f"{status}\nStarted: {self.started}\nFinished: {finished_at}\n\n"
+        calendar_atomic_write(self.directory / "report.txt", (summary + plain).encode("utf-8"), mode=0o644)
+        calendar_atomic_write(self.directory / "index.html", page.encode("utf-8"), mode=0o644)
+        if calendar_error is not None:
+            raise calendar_error
+
+
+def run_with_web_report() -> None:
+    """Export only real checks, leaving validation and notification tests alone."""
+    if not isinstance(config.report_directory, str) or config.apprise_test:
+        main()
+        return
+    report = WebReport(config.report_directory)
+    logger = logging.getLogger()
+    # Existing plaintext handlers mutate ANSI records; capture before those filters.
+    logger.handlers.insert(0, report)
+    status = "Failed"
+    try:
+        try:
+            report.publish("Running")
+        except OSError as exc:
+            raise ReportError("Cannot start report; check reportDirectory permissions") from exc
+        try:
+            main()
+            status = "Completed"
+        except BaseException as exc:
+            report.emit(logging.LogRecord(__name__, logging.ERROR, "", 0,
+                        f"Run stopped: {type(exc).__name__}: {exc}", (), None))
+            raise
+        finally:
+            try:
+                report.publish(status, config.calendar, finished=True)
+            except OSError as exc:
+                raise ReportError("Cannot publish report; check reportDirectory permissions") from exc
+    finally:
+        logger.removeHandler(report)
+        report.close()
 
 
 #####################################
@@ -4632,6 +4755,12 @@ def load_config_objects(config_path: str) -> CruiseAppConfig:
     if data.get("currencyOverride", None) is not None:
         currency_override_present = True
 
+    report_directory = data.get("reportDirectory")
+    if report_directory is not None:
+        if not isinstance(report_directory, str) or not report_directory.strip():
+            raise ValueError("reportDirectory must be a nonempty directory path")
+        report_directory = report_directory.strip()
+
     # Build and return the global master config object using data.get() for fallback defaults
     config = CruiseAppConfig(
         availability=parse_availability_config(data.get("availability")),
@@ -4643,6 +4772,7 @@ def load_config_objects(config_path: str) -> CruiseAppConfig:
         request_timeout=int(data.get("requestTimeout", REQUEST_TIMEOUT)),
         date_display_format=data.get("dateDisplayFormat", "%x"),
         log_file=data.get("logFile"),
+        report_directory=report_directory,
         history_db=data.get("historyDb"),
         output_watch_as_json=data.get("outputWatchAsJson",False),
         output_json_watch_file=data.get("outputJsonFile","output-json-watch.txt"),
@@ -4953,7 +5083,7 @@ def cli() -> None:
             sys.exit(0)
 
         # Now that the config object is fully built, pass control to main
-        main()
+        run_with_web_report()
 
     except FileNotFoundError:
         print("\n[!]No Configuration File Found")
@@ -5006,7 +5136,7 @@ def cli() -> None:
         sys.stderr.write(f"ERROR: {error_summary}\n")
         # Expected API/state failures already have per-watch diagnostics.
         # Preserve tracebacks for unexpected programming errors.
-        if not isinstance(exc, (AvailabilityUnknown, CalendarError)):
+        if not isinstance(exc, (AvailabilityUnknown, CalendarError, ReportError)):
             traceback.print_exc()
 
         # Safe structural verification for notifications

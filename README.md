@@ -70,4 +70,5 @@ Thanks to contributors:
 ### Optional local calendar export
 
 See [Calendar setup](CALENDAR-SETUP.md) for itinerary, check-in and final-payment
-calendar generation. This is opt-in and does not host a subscription feed.
+calendar generation. For an optional LAN subscription feed and a colored report
+of the latest check, see [Local web setup](LOCAL-WEB-SETUP.md).

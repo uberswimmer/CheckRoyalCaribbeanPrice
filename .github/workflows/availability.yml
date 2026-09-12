@@ -29,6 +29,7 @@ jobs:
           import yaml
           config = yaml.safe_load(open('SAMPLE-availability-config.yaml'))
           config.pop('apprise', None)
+          config['reportDirectory'] = '/app/data/public'
           config['calendar'] = {'outputDirectory': '/app/data/calendar', 'sailings': [
               {'ship': 'IC', 'sailDate': '2099-10-10'}]}
           with open('config.availability.yaml', 'w') as f:
@@ -36,6 +37,20 @@ jobs:
           PY
           docker compose -f compose.availability.yaml config --quiet
           docker run --rm -v "$PWD/config.availability.yaml:/app/config.yaml:ro" royal-availability:ci check --validate-config
+      - name: Build and exercise local report server
+        shell: bash
+        run: |
+          docker build -f Dockerfile.web -t royal-reports:ci .
+          mkdir -p "$PWD/web-smoke"
+          chmod 755 "$PWD/web-smoke"
+          docker run -d --name report-smoke --read-only --cap-drop ALL \
+            --security-opt no-new-privileges:true \
+            --tmpfs /tmp:rw,noexec,nosuid,size=16m,mode=1777 \
+            -p 127.0.0.1:8088:8080 -v "$PWD/web-smoke:/srv/exports:ro" royal-reports:ci
+          trap 'docker logs report-smoke; docker rm -f report-smoke' EXIT
+          python unittests/web_server_smoke.py http://127.0.0.1:8088 "$PWD/web-smoke"
+          CHECKER_IMAGE=royal-availability:ci REPORT_IMAGE=royal-reports:ci LAN_IP=127.0.0.1 \
+            docker compose -f compose.local-web.yaml config --quiet
   publish:
     needs: test
     # PRs and development branches never change the published image.
@@ -73,10 +88,27 @@ jobs:
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.licenses=MIT
             org.opencontainers.image.description=Royal Caribbean entertainment and dining availability checker
+      - name: Publish local report server image
+        id: reports
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.web
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ steps.registry.outputs.image }}-reports:latest
+            ${{ steps.registry.outputs.image }}-reports:sha-${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.description=Local static cruise reports and calendar feed
       - name: Record published image
         env:
           IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
           IMAGE_NAME: ${{ steps.registry.outputs.image }}
+          REPORT_DIGEST: ${{ steps.reports.outputs.digest }}
         run: |
           echo "Image: $IMAGE_NAME:latest" >> "$GITHUB_STEP_SUMMARY"
           echo "Digest: $IMAGE_DIGEST" >> "$GITHUB_STEP_SUMMARY"
+          echo "Reports: $IMAGE_NAME-reports:latest ($REPORT_DIGEST)" >> "$GITHUB_STEP_SUMMARY"
