@@ -134,6 +134,32 @@ MARKET_RULES: dict[str, Union[int, DurationRules]] = {
     "CA":  [(4, 75), (14, 90), (float("inf"), 120)],
 }
 
+# Process exit code contract for main() - a supervising scheduler can rely on
+# these three outcomes meaning exactly this and nothing else:
+#   0                    - full success: every account was checked
+#   1                    - fatal/total failure: an unhandled exception, or a
+#                          module-level setup failure. This can happen before
+#                          any pricing ran, or partway through a multi-account
+#                          run after earlier accounts already succeeded and
+#                          had their price-drop alerts sent - the exit code
+#                          alone doesn't say how far the run got. Don't
+#                          blindly auto-retry on this code (that risks
+#                          re-alerting accounts that already succeeded);
+#                          surface it to a human and check the log first.
+#   EXIT_PARTIAL_FAILURE - the run COMPLETED, but one or more accounts were
+#                          SKIPPED after a login or post-login profile-fetch
+#                          failure. Data already written for the accounts
+#                          that DID succeed (price points committed,
+#                          price-drop alerts sent, the watchlist JSON) is
+#                          real and must not be redone.
+#                          A scheduler that treats this the same as exit 1
+#                          and blindly retries the whole run will re-price
+#                          already-priced accounts and can send duplicate
+#                          price-drop notifications to real users - so this
+#                          code is deliberately distinct from the fatal (1)
+#                          and success (0) cases.
+EXIT_PARTIAL_FAILURE = 2
+
 # ANSI color codes
 RESET = '\033[0m' # Resets color to default
 
@@ -485,6 +511,12 @@ class AccountInfo:
     access: Optional[APIAccess] = None
     found_items: Set[str] = field(default_factory=set)
 
+    # Populated in main() right after get_profile(); history-layer snapshot
+    # fields only (C&A/Captain's Club tier label + individual points) - not
+    # used anywhere in alert/discount logic.
+    loyalty_tier: Optional[str] = None
+    loyalty_points: Optional[int] = None
+
     # Live Runtime Object (excluded from the YAML mapping, like config.apobj).
     # Per-account Apprise object; falls back to the global config.apobj via
     # notifier_for() when this account has no apprise: list of its own.
@@ -657,6 +689,47 @@ CREATE INDEX IF NOT EXISTS idx_price_points_history
 
 CREATE INDEX IF NOT EXISTS idx_price_points_run
     ON price_points (run_id);
+
+CREATE TABLE IF NOT EXISTS bookings (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id           INTEGER NOT NULL REFERENCES runs(run_id),
+    observed_at      TEXT NOT NULL,
+    account_label    TEXT,                 -- account_info.username
+    reservation_id   TEXT NOT NULL,
+    ship_code        TEXT,
+    ship_name        TEXT,                 -- from the ShipRegistry the run already built
+    sail_date        TEXT,                 -- YYYYMMDD
+    nights           INTEGER,
+    stateroom_type   TEXT,                 -- e.g. BALCONY / INTERIOR / GTY label as the script prints it
+    stateroom_number TEXT,                 -- may be NULL (GTY not yet assigned)
+    stateroom_category TEXT,               -- e.g. 4D
+    guest_count      INTEGER,
+    guests_json      TEXT,                 -- [{"name": "...", "id": "...", "age_bracket": "adult"}]
+    loyalty_tier     TEXT,                 -- from get_profile(): C&A tier label; NULL if unknown
+    loyalty_points   INTEGER,
+    checkin_label    TEXT,                 -- the string the summary table prints (e.g. "Opens Dec 10 8:00 AM")
+    final_payment_date TEXT,               -- YYYYMMDD, from get_final_payment_date
+    past_final_payment INTEGER,            -- 0/1
+    balance_due      INTEGER,              -- 1 / 0 / NULL (unknown, TA bookings)
+    booking_currency TEXT,
+    friendly_name    TEXT                  -- reservationFriendlyNames entry if configured
+);
+CREATE INDEX IF NOT EXISTS idx_bookings_latest ON bookings (reservation_id, observed_at DESC);
+
+CREATE TABLE IF NOT EXISTS promos (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id           INTEGER NOT NULL REFERENCES runs(run_id),
+    observed_at      TEXT NOT NULL,
+    account_label    TEXT,
+    ship_code        TEXT,
+    sail_date        TEXT,
+    promo_id         TEXT,
+    promo_title      TEXT,
+    promo_line       TEXT,                 -- the human-readable line the script logs
+    promo_start      TEXT,
+    promo_end        TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_promos_run ON promos (run_id);
 """
 
 
@@ -672,9 +745,11 @@ class PriceHistory:
     mid-run loses nothing already recorded - this script is a short-lived
     process invoked fresh per run, so there is no long-lived connection to
     manage. A `runs` row whose finished_at is still NULL means the process
-    exited without ever finalizing it (e.g. a sys.exit() from a login
-    failure, before main()'s own error handler could run) - treat such rows
-    as an aborted run, not a currently-in-progress one.
+    exited without ever finalizing it (e.g. a crash or a killed process,
+    before main()'s own error handler could run) - treat such rows as an
+    aborted run, not a currently-in-progress one. A login failure no longer
+    leaves finished_at NULL: main() catches it per account and finalizes the
+    run as "partial_failure" instead.
     """
 
     def __init__(self, db_path: Optional[str] = None) -> None:
@@ -714,18 +789,6 @@ class PriceHistory:
         conn.execute("PRAGMA journal_mode=WAL")
         return conn
 
-    def _insert(self, **fields: Any) -> None:
-        fields.setdefault("observed_at", datetime.now(timezone.utc).isoformat())
-        fields["run_id"] = self._current_run_id
-        cols = ", ".join(fields)
-        placeholders = ", ".join("?" for _ in fields)
-        try:
-            with closing(self._connect()) as conn:
-                conn.execute(f"INSERT INTO price_points ({cols}) VALUES ({placeholders})", tuple(fields.values()))
-                conn.commit()
-        except (sqlite3.Error, OSError) as e:
-            self._disable(e)
-
     def start_run(self) -> Optional[int]:
         """Opens a new `runs` row and remembers it as the active run."""
         if not self.enabled:
@@ -761,13 +824,37 @@ class PriceHistory:
         """Appends one `price_points` row for a cabin-fare observation."""
         if not self.enabled or self._current_run_id is None:
             return
-        self._insert(item_kind="cabin_fare", **fields)
+        self._insert("price_points", item_kind="cabin_fare", **fields)
 
     def record_addon(self, **fields: Any) -> None:
         """Appends one `price_points` row for an addon/watchlist observation."""
         if not self.enabled or self._current_run_id is None:
             return
-        self._insert(**fields)
+        self._insert("price_points", **fields)
+
+    def record_booking(self, **fields: Any) -> None:
+        """Appends one `bookings` row: a full snapshot of one reservation this run."""
+        if not self.enabled or self._current_run_id is None:
+            return
+        self._insert("bookings", **fields)
+
+    def record_promo(self, **fields: Any) -> None:
+        """Appends one `promos` row for one active sitewide promotion this run."""
+        if not self.enabled or self._current_run_id is None:
+            return
+        self._insert("promos", **fields)
+
+    def _insert(self, table: str, **fields: Any) -> None:
+        fields.setdefault("observed_at", datetime.now(timezone.utc).isoformat())
+        fields["run_id"] = self._current_run_id
+        cols = ", ".join(fields)
+        placeholders = ", ".join("?" for _ in fields)
+        try:
+            with closing(self._connect()) as conn:
+                conn.execute(f"INSERT INTO {table} ({cols}) VALUES ({placeholders})", tuple(fields.values()))
+                conn.commit()
+        except (sqlite3.Error, OSError) as e:
+            self._disable(e)
 
 
 class CheckinPaymentTracker:
@@ -1447,7 +1534,10 @@ def get_profile(account_info: AccountInfo) -> Tuple[Optional[str], Optional[str]
 
     Inspects user contact records to locate primary residency states and tracks concurrent
     loyalty modules (Crown & Anchor, Club Royale, Captain's Club, and Blue Chip). Returns
-    the active brand tracking index to route downstream web requests correctly.
+    the active brand tracking index to route downstream web requests correctly. Also stashes
+    the active-brand loyalty tier label and individual points directly onto account_info
+    (history-layer snapshot fields only - never read by any discount/alert logic) since
+    account_info is already in hand here and get_voyages()'s signature must not change.
     """
     url = f"https://aws-prd.api.rccl.com/en/{account_info.api_brand}/web/v3/guestAccounts/{account_info.access.id}"
     response = _execute_api_request(account_info, "GET", url)
@@ -1491,6 +1581,8 @@ def get_profile(account_info: AccountInfo) -> Tuple[Optional[str], Optional[str]
             log(f"\tCasino Royale Tier: {club_royale_loyalty_tier} - {casino_points} Credits")
 
     # Get and display Celebrity (Captain's Club and Blue Chip) information
+    cc_level = None
+    cc_individual = 0
     if captains_club_ID:
         cc_level = loyalty.get("captainsClubLoyaltyTier")
         cc_individual = loyalty.get("captainsClubLoyaltyIndividualPoints", 0)
@@ -1508,6 +1600,12 @@ def get_profile(account_info: AccountInfo) -> Tuple[Optional[str], Optional[str]
 
     # Return the correct loyality number based on the account being used
     loyalty_number_to_use = captains_club_ID if account_info.is_celebrity else c_and_a_number
+
+    # History-layer snapshot only (bookings.loyalty_tier / loyalty_points) - stashed
+    # directly on account_info since it's already in hand; not used in any
+    # discount/alert calculation and not part of this function's return contract
+    account_info.loyalty_tier = cc_level if account_info.is_celebrity else c_and_a_level
+    account_info.loyalty_points = cc_individual if account_info.is_celebrity else c_and_a_points
 
     # Return Royal Crown and Anchor shared points to determine if eligible for dp340
     return state, loyalty_number_to_use, c_and_a_shared_points
@@ -1732,7 +1830,8 @@ def get_voyages(
 
         # Record this booking for the end-of-run check-in / final-payment summary table.
         # Include the room number so multiple cabins on the same sailing are distinct.
-        summary_name = ship_dictionary.get_ship(ship_code)
+        ship_name = ship_dictionary.get_ship(ship_code)
+        summary_name = ship_name
         if stateroom_number:
             summary_name += f" ({stateroom_number})"
         summary_reservation = str(reservation_ID)
@@ -1744,6 +1843,7 @@ def get_voyages(
         if str(reservation_ID) in config.paid_reservations:
             balance_due = False   # user vouches for it (reservationsPaidInFull)
 
+        past_final_payment = date.today() > final_payment_date
         if payment_tracker is not None:
             payment_tracker.record_row({
                     "name": summary_name,
@@ -1752,10 +1852,42 @@ def get_voyages(
                     "checkin_label": checkin_label or "TBD",
                     "checkin_opening": checkin_opening,
                     "final_payment": final_payment_date,
-                    "past_final_payment": date.today() > final_payment_date,
+                    "past_final_payment": past_final_payment,
                     "balance_due": balance_due,
                     "dedupe_key": f"{reservation_ID}|{sail_date}",
         })
+
+        # Snapshot this booking for the history layer (opt-in, no-op when disabled).
+        # 1/0/NULL tri-state matches the summary table's balance_due handling above.
+        guests_json = json.dumps([
+            {
+                "name": g.get("firstName", "").capitalize(),
+                "id": g.get("passengerId"),
+                "age_bracket": "adult" if above_age_on_sail_date(g.get("birthdate"), sail_date, 12) else "child",
+            }
+            for g in guests
+        ])
+        config.history.record_booking(
+            reservation_id=str(reservation_ID),
+            ship_code=ship_code,
+            ship_name=ship_name,
+            sail_date=sail_date,
+            nights=number_of_nights,
+            stateroom_type=stateroom_type_name,
+            stateroom_number=stateroom_number if stateroom_number and stateroom_number != "GTY" else None,
+            stateroom_category=metrics.get('category_code'),
+            guest_count=len(guests),
+            guests_json=guests_json,
+            loyalty_tier=account_info.loyalty_tier,
+            loyalty_points=account_info.loyalty_points,
+            checkin_label=checkin_label or "TBD",
+            final_payment_date=final_payment_date.strftime("%Y%m%d"),
+            past_final_payment=int(past_final_payment),
+            balance_due={True: 1, False: 0}.get(balance_due),
+            booking_currency=booking_currency,
+            friendly_name=reservation_friendly_names.get(str(reservation_ID)),
+            account_label=account_info.username,
+        )
 
         if balance_due is True:
             owed = (f"{balance_due_amount:.2f}" if isinstance(balance_due_amount, (int, float))
@@ -2067,13 +2199,32 @@ def get_cruise_price(account_info: AccountInfo,
     if used_discounts != "":
         pre_string = f"{pre_string} ({used_discounts[:-2]} Discount)"
 
+    # History must record sail_date/nights in the SAME form the addon/promo/
+    # booking-snapshot paths already use (the booking's raw YYYYMMDD sailDate
+    # and bare numberOfNights), not url_params.sail_date - that's the dashed
+    # date parsed back out of the checkout URL. Recording the dashed form
+    # here made a reservation with an add-on purchase produce two history
+    # rows that disagree on sail_date/nights for the same sailing, so a
+    # downstream viewer grouping on (reservation_id, ship_code, sail_date,
+    # nights) showed it as two separate cards. url_params.sail_date/
+    # resolved_nights stay exactly as-is for the final-payment computation
+    # above and everything else in this function; only what gets written to
+    # history changes. The synthetic prospective/watchlist booking (see the
+    # `prospective_booking` dict built for config.prospective_cruises) has no
+    # sailDate/numberOfNights of its own, so fall back to those already-
+    # resolved URL/API-derived values for that case, same as before.
+    history_number_of_nights = int(booking.get("numberOfNights") or 0) or None
+    if not booking.get("sailDate"):
+        history_number_of_nights = resolved_nights
+    history_sail_date = booking.get("sailDate") or url_params.sail_date
+
     # Fields shared by every PriceHistory.record_cabin_fare() call below;
     # each call site only adds current_price/status/rebook_decision/notified
     history_common = {
         # str-coerced to match the addon rows, so the two kinds join cleanly
         "reservation_id": str(reservation_id) if reservation_id is not None else None,
         "account_label": account_info.username,
-        "ship_code": url_params.ship_code, "sail_date": url_params.sail_date, "nights": resolved_nights,
+        "ship_code": url_params.ship_code, "sail_date": history_sail_date, "nights": history_number_of_nights,
         "item_code": f"{url_params.package_code}/{url_params.stateroom_category_code}",
         "paid_price": paid_price, "currency": url_params.currency_code,
         "discount_applied": used_discounts[:-2] if used_discounts else None,
@@ -3085,7 +3236,8 @@ def get_all_promotions(account_info: AccountInfo, booking: Dict[str, Any]) -> No
 
         banner = banner_by_id.get(promo_ID)
         if banner:
-            promo_line = f"[PROMO] {banner.get('heading3', '')} {banner.get('heading4', '')} - {banner.get('heading1', '')} {date_range}"
+            promo_title = f"{banner.get('heading3', '')} {banner.get('heading4', '')} - {banner.get('heading1', '')}"
+            promo_line = f"[PROMO] {promo_title} {date_range}"
         else:
             template = next((t for t in promo.get("templates", []) if isinstance(t, dict) and t.get("type") == "HOME_HERO_LOCKUP"), None)
             if not template:
@@ -3111,11 +3263,17 @@ def get_all_promotions(account_info: AccountInfo, booking: Dict[str, Any]) -> No
                     description = " ".join(words).upper()
 
             category_code = template.get("categoryCode", "")
-            promo_line = f"[PROMO] {description or promo_ID}"
+            promo_title = description or promo_ID
+            promo_line = f"[PROMO] {promo_title}"
             if category_code:
                 promo_line += f" ({category_code})"
             promo_line += f" {date_range}"
 
+        config.history.record_promo(
+            account_label=account_info.username, ship_code=ship, sail_date=start_date,
+            promo_id=promo_ID, promo_title=promo_title, promo_line=promo_line,
+            promo_start=promo_start, promo_end=promo_end,
+        )
         log(YELLOW + promo_line + RESET)
 
 
@@ -5004,13 +5162,92 @@ def main() -> None:
         ship_dictionary = ShipRegistry()
         get_ship_dictionary_web(ship_dictionary)
 
+        # Accounts that could not be checked this run, paired with which
+        # phase failed (login or post-login profile fetch) - tracked so the
+        # end-of-run summary (and exit status) can't come out looking green
+        # when one account in a multi-account config silently never got
+        # checked, and so the persisted history row can still tell a stale
+        # password from a transient profile-API failure after the fact.
+        failed_accounts: List[Tuple[str, str]] = []
+
         for account_info in config.accounts:
             log(f"\nUsing {account_info.friendly_name} for user {account_info.username}")
             log(f"\t{account_info.friendly_name} loyalty number will be used for checking cabin prices")
 
-            # Login in to this account and get the profile information
-            account_info.access = login(account_info)
-            state_from_profile, loyalty_number, c_and_a_points = get_profile(account_info)
+            # Login in to this account and get the profile information.
+            #
+            # login() intentionally still raises SystemExit on failure (a stale
+            # password, a WAF block, etc.) - that contract is load-bearing for
+            # an out-of-tree caller that uses login() directly as a standalone
+            # credential probe. Left unguarded, though, that SystemExit would
+            # propagate straight out of this loop and take the whole
+            # multi-account run down over ONE bad account, silently skipping
+            # every account queued after it. So the caller - not login() -
+            # absorbs the failure: catch it (and any other unexpected
+            # Exception from either call) per account, report it loudly, and
+            # move on to the next account. SystemExit derives from
+            # BaseException rather than Exception, so it has to be named
+            # explicitly here; a bare `except Exception` would not catch it.
+            #
+            # login() and get_profile() are guarded together (an account that
+            # can't log in can't have its profile fetched either, so both
+            # failures are skip-and-continue the same way), but a phase flag
+            # tracks which of the two actually raised. A get_profile() error
+            # (e.g. a transient 500) on an account whose login SUCCEEDED is a
+            # different failure than a bad password, and must not be reported
+            # to the user as a login problem - that would send them chasing
+            # the wrong fix.
+            account_phase = "login"
+            try:
+                account_info.access = login(account_info)
+                account_phase = "profile"
+                state_from_profile, loyalty_number, c_and_a_points = get_profile(account_info)
+            except (SystemExit, Exception) as account_err:
+                failed_accounts.append((account_info.username, account_phase))
+                if account_phase == "login":
+                    skip_reason = "could not be logged in"
+                    notify_title = 'Cruise Price Account Login Failed'
+                else:
+                    skip_reason = "logged in, but its profile could not be fetched"
+                    notify_title = 'Cruise Price Account Profile Fetch Failed'
+                log(RED + f"\n[SKIPPED] {account_info.friendly_name} ({account_info.username}) {skip_reason} "
+                          f"this run (see the error above) - skipping this account and continuing "
+                          f"with the rest of the run." + RESET)
+
+                # Route the failure through the same per-account/global
+                # notifier resolution used everywhere else in this script, so
+                # a bad password reaches the user the same way a price alert
+                # would - not a bespoke notification path. Gated the same way
+                # as the module-level fatal-error notifier below: honor the
+                # notifyOnError opt-out, and only fire when the resolved
+                # notifier actually has URLs registered.
+                account_notifier = notifier_for(account_info)
+                if config.notify_on_error and account_notifier is not None and len(account_notifier) > 0:
+                    # login()'s SystemExit carries nothing but a bare exit
+                    # status (e.g. SystemExit(1), whose str() is just "1") -
+                    # the real diagnosis (a stale password, a WAF block,
+                    # etc.) was already logged by login() itself and a bare
+                    # "1" would only be noise to a user who, by definition,
+                    # is being notified because they won't read the log. A
+                    # plain Exception (e.g. from get_profile()) DOES carry a
+                    # useful message, so that case is still included.
+                    if isinstance(account_err, SystemExit) and not isinstance(account_err.code, str):
+                        detail = "See the run log for the exact reason."
+                    else:
+                        detail = str(account_err)
+                    account_notifier.notify(
+                        body=f"Account {account_info.username} ({account_info.friendly_name}) {skip_reason} "
+                             f"this run and was skipped. {detail}",
+                        title=notify_title,
+                        body_format=NotifyFormat.TEXT,
+                    )
+                # A profile failure happens after login has created a live
+                # session. This account will never enter the normal voyage
+                # cleanup path or the deferred availability cleanup list.
+                if account_info.access is not None:
+                    account_info.access.session.close()
+                continue
+
             if account_info.state is None:
                 account_info.state = state_from_profile
 
@@ -5129,6 +5366,32 @@ def main() -> None:
 
         if availability_error is not None:
             raise availability_error
+
+        if failed_accounts:
+            # At least one account never got checked this run. A quiet exit
+            # 0 here would look identical to a fully-successful run to any
+            # scheduler/log-scraper watching this process, hiding exactly the
+            # kind of silent partial loss this guard exists to prevent - so
+            # both the history row and the process exit code say otherwise.
+            failed_usernames = [username for username, _phase in failed_accounts]
+            log(RED + f"\n{len(failed_accounts)} of {len(config.accounts)} account(s) could not be checked this "
+                      f"run and were SKIPPED: {', '.join(failed_usernames)}. Prices for those accounts were NOT "
+                      f"checked. See the [SKIPPED] line(s) above for whether each was a login or profile-fetch "
+                      f"failure." + RESET)
+            # Name each account's failure phase (login vs profile) in the
+            # persisted summary too, not just the console [SKIPPED] lines -
+            # a later reader of the history DB only has this string, and
+            # without the phase they can't tell a stale password from a
+            # transient profile-API failure.
+            failure_detail = ", ".join(f"{username} ({phase})" for username, phase in failed_accounts)
+            config.history.finish_run(
+                "partial_failure",
+                f"{len(failed_accounts)} of {len(config.accounts)} account(s) could not be checked: "
+                f"{failure_detail}",
+            )
+            # Distinct from the fatal exit 1 below - see EXIT_PARTIAL_FAILURE.
+            sys.exit(EXIT_PARTIAL_FAILURE)
+
         config.history.finish_run("ok")
 
     except Exception as e:

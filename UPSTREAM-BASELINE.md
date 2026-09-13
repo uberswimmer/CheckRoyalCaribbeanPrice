@@ -1,8 +1,9 @@
 # Upstream baseline
 
 - Repository: https://github.com/jdeath/CheckRoyalCaribbeanPrice
-- Baseline commit: `8cfd8f769da725d940ea83e89f51a4d22a869c45`
-- Commit subject: Merge pull request #114 from AESternberg/main
+- Baseline commit: `613e6880606ab138c1b1d560322e59d74ad5eadf`
+- Commit subject: Delete .DS_Store
+- Published release included: `3.6.0` (`ac2a0ecbbbdd120622fd4f2c9d87161fdc0ef323`)
 - Local development branch: `feature/availability-watches`
 - Extension version: `0.1.0-test`
 - License: upstream MIT license retained in `LICENSE`.
