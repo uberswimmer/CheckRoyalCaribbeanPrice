@@ -122,3 +122,22 @@ and a contribution branch excluding fork-specific deployment material.
 Local verification of the readiness changes: **346 tests passed**, including
 18 additional regression cases, with the same existing dependency deprecation warning.
 Remote Python and container validation results are recorded on the refinement PR.
+
+## Upstream 3.6.0 sync review
+
+Upstream `main` through `613e6880606ab138c1b1d560322e59d74ad5eadf` was
+merged into the fork on a review branch. This includes release `3.6.0` plus its
+two subsequent `.DS_Store` cleanup commits. The only content conflict was the
+end-of-run boundary in `CheckRoyalCaribbeanPrice.py`; the resolution preserves
+calendar export completion, availability failure propagation, upstream's
+distinct partial-account failure exit, and final price-history status.
+
+Review also found that a successful login followed by a failed profile request
+could leave its session outside both existing cleanup paths. The merged code now
+closes that session, with a regression assertion covering the profile-failure
+path.
+
+Local validation: **442 tests passed**, Python and shell syntax checks passed,
+YAML parsing passed, and `git diff --check` passed. The local environment did not
+provide a Docker daemon or CLI, so native image, Compose, entrypoint, and report
+server smoke checks remain required in the pull request's GitHub Actions run.
