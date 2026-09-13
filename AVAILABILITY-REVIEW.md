@@ -139,5 +139,6 @@ path.
 
 Local validation: **442 tests passed**, Python and shell syntax checks passed,
 YAML parsing passed, and `git diff --check` passed. The local environment did not
-provide a Docker daemon or CLI, so native image, Compose, entrypoint, and report
-server smoke checks remain required in the pull request's GitHub Actions run.
+provide a Docker daemon or CLI. The pull request's GitHub Actions run subsequently
+passed the native image build, Compose validation, container entrypoint/configuration
+check, report-image build, and report-server smoke test on September 13, 2026.
