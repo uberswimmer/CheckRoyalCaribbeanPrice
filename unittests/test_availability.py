@@ -215,7 +215,7 @@ def test_first_available_notifies_once_across_new_connections(context):
     assert deliver(context)
     assert deliver(context)
     assert c.config.apobj.notify.call_count == 1
-    assert 'pt_show/product/Y7QG' in c.config.apobj.notify.call_args.kwargs['body']
+    assert 'category/pt_show?bookingId=booking-1&shipCode=IC&sailDate=20991010' in c.config.apobj.notify.call_args.kwargs['body']
 
 
 def test_dry_run_does_not_swallow_first_live_alert(context):
@@ -269,12 +269,15 @@ def test_unknown_never_rearms_or_changes_state(context):
 
 
 def test_aggregate_new_products_and_skip_acknowledged_ones(context):
-    deliver(context,[state_result(product='first'),state_result(product='second')])
+    first = replace(state_result(product='first'), title='First show')
+    second = replace(state_result(product='second'), title='Second show')
+    third = replace(state_result(product='third'), title='Third show')
+    deliver(context, [first, second])
     assert c.config.apobj.notify.call_count == 1
-    deliver(context,[state_result(product='first'),state_result(product='second'),state_result(product='third')])
+    deliver(context, [first, second, third])
     assert c.config.apobj.notify.call_count == 2
     body = c.config.apobj.notify.call_args.kwargs['body']
-    assert '/third?' in body and '/first?' not in body
+    assert 'Third show:' in body and 'First show:' not in body and 'Second show:' not in body
 
 
 def test_scope_separates_accounts_sailings_and_modes(context):
@@ -482,7 +485,7 @@ def test_end_to_end_only_mode_uses_captured_contracts_and_persists(context,monke
     assert len(calls)==6
     c.config.apobj.notify.assert_called_once()
     body=c.config.apobj.notify.call_args.kwargs['body']
-    assert '21:30:00' in body and '19:15:00' not in body
+    assert '21:30' in body and '19:15' not in body
 
 
 def test_booking_path_returns_snapshot_without_running_availability_early(context,monkeypatch):
@@ -843,3 +846,71 @@ def test_availability_section_spacing_and_completion_precede_summary(context, mo
     assert 'Last price result\n \nReservation Availability Watches\n \n' in text
     assert '\n    headliner\n      No entertainment products listed' in text
     assert 'Availability checks completed successfully\n \nUpcoming Check-In' in text
+
+
+def test_compact_alert_groups_dates_separates_shows_and_keeps_one_booking_link(context):
+    a, b, w, s, p = context
+    c.config.date_display_format = '%Y-%m-%d'
+    results = [c.AvailabilityResult('one', 'Comedy', 'available', 'inventory',
+               ('2099-10-10T20:30:00-04:00', '2099-10-10T22:30:00-04:00', '2099-10-11T19:00:00-04:00')),
+               c.AvailabilityResult('two', 'Ice Show', 'available', 'inventory', ('2099-10-12T21:15:00',))]
+    assert c.deliver_availability(s, a, b, w, p, results)
+    body = c.config.apobj.notify.call_args.kwargs['body']
+    assert '\n\nComedy:\n2099-10-10: 20:30, 22:30\n2099-10-11: 19:00' in body
+    assert '\n\nIce Show:\n2099-10-12: 21:15' in body
+    assert body.count('https://') == 1 and '/product/' not in body
+    assert 'pt_show?bookingId=booking-1&shipCode=IC&sailDate=20991010' in body
+    assert 'Inventory released; personal conflicts not checked.' in body
+    assert 'Times as returned by Royal.' in body
+    assert 'T20:30' not in body and '20:30:00' not in body
+
+
+def test_compact_alert_retains_preview_limit_but_console_has_all_times(context):
+    a, b, w, s, p = context
+    times = tuple(f'2099-10-10T{hour:02d}:00:00' for hour in range(10, 18))
+    assert c.deliver_availability(s, a, b, w, p,
+        [c.AvailabilityResult('one', 'Show', 'available', 'inventory', times)])
+    body = c.config.apobj.notify.call_args.kwargs['body']
+    assert '(+2 more times in Cruise Planner)' in body
+    assert '15:00' in body and '16:00' not in body
+    assert any('16:00, 17:00' in call.args[0] for call in c.log.call_args_list)
+
+
+def test_compact_dining_alert_retains_party_and_table_caveats(context):
+    a, b, w, s, p = context
+    w = replace(w, category='dining', mode='party')
+    assert c.deliver_availability(s, a, b, w, p, [state_result()])
+    body = c.config.apobj.notify.call_args.kwargs['body']
+    assert 'no detected restrictions for the configured party' in body
+    assert 'pt_dining?' in body and 'pt_show' not in body
+    assert 'Reported stock does not guarantee a table for the full party.' in body
+    assert 'personal conflicts not checked' not in body
+
+
+def test_native_apprise_split_preserves_all_shows_and_retries_failed_delivery(context):
+    apprise = pytest.importorskip('apprise')
+    a, b, w, s, p = context
+    notifier = apprise.Apprise()
+    assert notifier.add('pover://' + 'a'*30 + '@' + 'b'*30 + '/?overflow=split')
+    service = next(iter(notifier))
+    # Replace the transport, so no real notifications or network calls are possible.
+    service.send = Mock(return_value=True)
+    c.config.apobj = notifier
+    results = [c.AvailabilityResult(str(i), f'Show {i:02d} with an example title', 'available', 'inventory',
+                                   ('2099-10-10T20:30:00', '2099-10-11T22:30:00')) for i in range(30)]
+    service.send.side_effect = lambda **kwargs: 'Show 00' not in kwargs['body']
+    assert not c.deliver_availability(s, a, b, w, p, results)
+    with sqlite3.connect(s.state_file) as db:
+        assert db.execute('SELECT SUM(notified) FROM availability_v1').fetchone()[0] == 0
+    service.send.reset_mock()
+    service.send.side_effect = None
+    assert c.deliver_availability(s, a, b, w, p, results)
+    chunks = [call.kwargs['body'] for call in service.send.call_args_list]
+    assert len(chunks) > 1
+    assert all(len(chunk) <= service.body_maxlen for chunk in chunks)
+    delivered = '\n'.join(chunks)
+    assert all(f'Show {i:02d}' in delivered for i in range(30))
+    assert 'category/pt_show?' in delivered
+    service.send.reset_mock()
+    assert c.deliver_availability(s, a, b, w, p, results)
+    service.send.assert_not_called()
