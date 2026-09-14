@@ -1512,7 +1512,7 @@ def test_check_if_room_is_available_network_exception_tolerance():
     ):
         try:
             available, alternate_rooms = check_if_room_is_available(url_params)
-            assert available is False
+            assert available is None
             assert alternate_rooms == []
         except Exception as err:
             pytest.fail(f"check_if_room_is_available leaked a raw unhandled exception: {err}")
