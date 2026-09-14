@@ -4018,6 +4018,16 @@ def availability_scope(account: AccountInfo, booking: dict, watch: AvailabilityW
     return hashlib.sha256(json.dumps(values, sort_keys=True).encode()).hexdigest()
 
 
+def availability_time_lines(times: tuple) -> list[str]:
+    """Group Royal's wall-clock times by date, using the existing date preference."""
+    by_date = {}
+    for stamp in times:
+        when = datetime.fromisoformat(stamp)
+        by_date.setdefault(when.date(), []).append(when.strftime("%H:%M"))
+    return [f"{config.format_date(day.strftime('%Y%m%d'))}: {', '.join(values)}"
+            for day, values in by_date.items()]
+
+
 def deliver_availability(settings: AvailabilitySettings, account: AccountInfo, booking: dict,
                          watch: AvailabilityWatch, party: tuple, results: list) -> bool:
     """One aggregated alert per watch/run. Failed sends are retried on later runs.
@@ -4029,14 +4039,8 @@ def deliver_availability(settings: AvailabilitySettings, account: AccountInfo, b
     for r in results:
         color = {"available": GREEN, "unavailable": YELLOW, "unknown": RED}[r.state]
         log(f"      {color}{r.title}: {r.state.capitalize()}{RESET} ({r.reason})")
-        if r.times:
-            by_date = {}
-            for stamp in r.times:
-                when = datetime.fromisoformat(stamp)
-                day = config.format_date(when.strftime("%Y%m%d"))
-                by_date.setdefault(day, []).append(when.strftime("%H:%M"))
-            for day, times in by_date.items():
-                log(f"        {day}: {', '.join(times)}")
+        for line in availability_time_lines(r.times):
+            log(f"        {line}")
     if settings.dry_run:
         log(f"      {YELLOW}Availability dry run: no availability notifications or state changes{RESET}")
         return not any(r.state == "unknown" for r in results)
@@ -4067,20 +4071,18 @@ def deliver_availability(settings: AvailabilitySettings, account: AccountInfo, b
             sent = True
             if candidates:
                 lines = [f"{watch.name}: {booking['shipCode']} sailing {availability_date(booking['sailDate']).isoformat()}"]
-                lines.append("Royal reports reservation inventory." if watch.mode == "release" else
-                             "Royal reports inventory with no detected restrictions for the configured party.")
-                if watch.mode == "release":
-                    lines.append("Existing reservations and personal conflicts do not suppress this release alert.")
+                lines.append("Inventory released; personal conflicts not checked." if watch.mode == "release" else
+                             "Inventory available; no detected restrictions for the configured party.")
                 for r in candidates:
-                    times = ", ".join(r.times[:6])
+                    lines.extend(["", f"{r.title}:"])
+                    lines.extend(availability_time_lines(r.times[:6]))
                     if len(r.times) > 6:
-                        times += f" (+{len(r.times) - 6} more)"
-                    lines.append(f"{r.title}: {times}")
-                    params = urlencode({"bookingId": str(booking["bookingId"]), "shipCode": booking["shipCode"],
-                                        "sailDate": availability_date(booking["sailDate"]).strftime("%Y%m%d")})
-                    lines.append(f"https://www.royalcaribbean.com/account/cruise-planner/category/pt_{watch.category}"
-                                 f"/product/{quote(r.product, safe='')}?{params}")
-                lines.append("Times are as returned by Royal. Confirm availability in Cruise Planner.")
+                        lines.append(f"(+{len(r.times) - 6} more times in Cruise Planner)")
+                params = urlencode({"bookingId": str(booking["bookingId"]), "shipCode": booking["shipCode"],
+                                    "sailDate": availability_date(booking["sailDate"]).strftime("%Y%m%d")})
+                lines.extend(["", "Cruise Planner:",
+                    f"https://www.royalcaribbean.com/account/cruise-planner/category/pt_{watch.category}?{params}",
+                    "Times as returned by Royal. Confirm availability in Cruise Planner."])
                 if watch.category == "dining":
                     lines.append("Reported stock does not guarantee a table for the full party.")
                 notifier = notifier_for(account)

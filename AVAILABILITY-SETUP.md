@@ -69,7 +69,8 @@ docker compose -f compose.availability.yaml exec royal-availability ./entrypoint
 ```
 
 The first live run alerts for products already available, as well as future releases.
-Simultaneously discovered products are combined into one notification per watch.
+Simultaneously discovered products are combined into one alert per watch.
+Apprise can deliver an oversized alert as multiple messages; see below.
 Stop this instance with:
 
 ```sh
@@ -121,6 +122,44 @@ date in 24-hour format, preserving the wall-clock times returned by Royal.
 `availability.dryRun` is not a global dry-run switch. The upstream program has no
 general dry-run mode: combined price checks can still send their normal alerts.
 The console labels this setting as `Availability dry run` to make the scope clear.
+
+## Readable alerts and message length
+
+Availability alerts group each show's times by date in 24-hour format, using the
+existing `dateDisplayFormat` setting and preserving Royal's wall-clock values.
+Blank lines separate products. Each product previews up to six returned times;
+any additional times are counted in a “more times” note. The console/web report
+continues to show all returned times. One Cruise Planner category link supplies
+the booking and sailing context for the whole watch, instead of repeating a long
+product link for every show. Open that category and choose the desired product.
+
+To prevent notification-service length limits from cutting off larger alerts,
+use Apprise's built-in `overflow=split` option on your notification URL:
+
+- No existing query options: append `?overflow=split`.
+- Existing query options after `?`: append `&overflow=split`.
+- An existing `overflow` parameter: change its value to `split`.
+
+Keep the complete URL quoted in YAML. For example, with fictional placeholders:
+
+```yaml
+apprise:
+  - url: "pover://APP_TOKEN@USER_KEY/?overflow=split"
+```
+
+Set it on the per-account URL instead if that account overrides the global
+notifier. This is a standard Apprise option, not a new checker setting or custom
+Pushover implementation. It applies to all alerts sent through that URL, including
+price alerts. Each service's plugin handles its own limits; the checker neither
+hard-codes a message length nor changes your notification URL automatically.
+Apprise's splitting is length-based and is not guaranteed to keep each show block
+in a separate message. See [Apprise overflow documentation](https://appriseit.com/qa/data-overflow/).
+
+The availability state is acknowledged only when Apprise reports full success.
+A failed part leaves the alert eligible for retry at the next check, which can
+repeat parts that already arrived. This preserves the existing delivery behavior.
+Changing formatting or the URL does not reset notification history or resend
+previously acknowledged releases. Their times remain in the latest report.
 
 ## What the detector actually knows
 

@@ -4,6 +4,8 @@ accountInfo:
   - username: "YOUR_ROYAL_EMAIL"
     password: "YOUR_ROYAL_PASSWORD"
     cruiseLine: royalcaribbean
+# Add overflow=split to this URL to let Apprise split oversized alerts.
+# See AVAILABILITY-SETUP.md for ? versus & and per-account notification URLs.
 apprise:
   - url: "YOUR_APPRISE_URL"
 
