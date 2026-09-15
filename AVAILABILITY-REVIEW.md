@@ -142,3 +142,15 @@ YAML parsing passed, and `git diff --check` passed. The local environment did no
 provide a Docker daemon or CLI. The pull request's GitHub Actions run subsequently
 passed the native image build, Compose validation, container entrypoint/configuration
 check, report-image build, and report-server smoke test on September 13, 2026.
+
+## Upstream loyalty-night routing sync review
+
+Upstream `main` through `7dbd6cb9332c5934caa7ba11060f40a15c7904dd` was
+merged into the fork on a review branch. The change routes Crown & Anchor and
+Captain's Club history lookups by the loyalty program being queried instead of the
+login brand, preventing cross-brand profiles from querying the wrong endpoint.
+
+The merge applied cleanly. Availability monitoring, scheduled checks,
+configuration compatibility, persistent notification state, scoped price-alert
+exclusions, and the dedicated GHCR workflow are unchanged. No configuration or
+state migration is required.
