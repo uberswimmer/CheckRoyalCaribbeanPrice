@@ -68,8 +68,8 @@ assert (directory/'fixture-count').read_text() == 'run\n'
 (directory/'fixture-finish').write_text('0')
 wait_for(lambda: fetch()[1]['state'] == 'completed')
 assert b'Fixture check Completed' in fetch('/')[1]
-page.wait_for_function("document.body.textContent.includes('Fixture check Completed')")
-page.wait_for_function("document.querySelector('[role=status]')?.textContent.includes('Last check completed')")
+page.get_by_text('Fixture check Completed', exact=True).wait_for(state='visible', timeout=15000)
+page.get_by_role('status').filter(has_text='Last check completed').wait_for(state='visible')
 assert button.is_disabled()  # Cooldown after the automatic refresh.
 assert not errors, errors
 browser.close(); playwright.stop()
