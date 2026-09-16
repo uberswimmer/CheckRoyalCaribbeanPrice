@@ -1,11 +1,11 @@
 # Local reports and calendar subscription
 
 The optional report server serves saved files over HTTP on your LAN. It permits
-direct access without authentication. Nothing is forwarded from
-the Internet by this Compose file.
+direct access without authentication. An optional **Run check now** button starts
+the checker's normal run. Nothing is forwarded from the Internet by this Compose file.
 
 The checker continues using its existing schedule. A separate Nginx container
-serves three routes from a read-only export directory:
+serves saved exports from a read-only directory:
 
 | Route | Content |
 | --- | --- |
@@ -13,8 +13,10 @@ serves three routes from a read-only export directory:
 | `/report.txt` | Latest check as plain text |
 | `/cruises.ics` | Calendar subscription feed |
 
-This is a saved report, not an interactive console. Refresh the browser after a
-check. Opening a page does not run the checker or contact Royal Caribbean.
+The page contains a saved report and, when enabled, a fixed check button. Opening
+the page does not run the checker or contact Royal Caribbean. While the page is
+open, the button checks local run status and refreshes the report when a run ends.
+Without run control, refresh the browser to see later reports.
 
 ## Enable generation
 
@@ -90,10 +92,63 @@ In the checker container's Portainer console, run:
 ./entrypoint.sh check
 ```
 
-Open `http://YOUR_DOCKER_SERVER_LAN_IP:8088/`. Until the first report is written,
-that route returns 503. The calendar returns 404 until generated. If an existing
+Open `http://YOUR_DOCKER_SERVER_LAN_IP:8088/`. Before the first report is written,
+the page offers the check button when control is enabled. The calendar returns 404 until generated. If an existing
 public directory is not readable by the server, check its directory permissions.
 If port 8088 is in use, choose another `REPORT_PORT`.
+
+## Run check now
+
+The supplied Compose file enables run control. For an existing Portainer stack,
+pull both updated images and add these settings to the checker service, retaining
+its current timezone, schedule, mounts and image:
+
+```yaml
+    stop_grace_period: 20s
+    environment:
+      # Keep the existing TZ and CRON_SCHEDULE entries here too.
+      CHECKER_WEB_ENABLED: "true"
+      CHECKER_WEB_ORIGIN: "http://${LAN_IP}:${REPORT_PORT:-8088}"
+```
+
+Redeploy the stack once so the environment changes take effect. Watchtower image
+updates alone cannot add these settings. Both services must share the Compose
+network, with the checker reachable as `cruise-availability-checker`.
+Use the exact configured report address in the browser. A different hostname or
+port will not be accepted for control requests. No additional host port is needed.
+
+The button runs the same `CheckRoyalCaribbeanPrice.py` command as the normal
+schedule, using `/app/config.yaml` and normal notifications. With
+`availability.only: false`, this includes price checks and enabled availability
+and calendar features. With `only: true`, it follows availability-only mode.
+There is no browser option to change configuration or send command arguments.
+
+The page shows running/completed/failed status and refreshes after completion.
+Scheduled runs are visible too. If a run fails before it can write a report, the
+control status shows failure and the saved report can still be from the prior run;
+check container logs in that case. The interface does not stream console output.
+
+Manual requests, cron and `./entrypoint.sh check` share an OS lock in
+`/app/data/run-control`. A busy invocation is skipped, not queued, so a scheduled
+check arriving during a manual run will not overlap it. A skipped console/cron
+invocation exits with code 75. Direct `python CheckRoyalCaribbeanPrice.py` commands
+bypass this Docker wrapper; use the entrypoint for manual Docker checks.
+Web requests also have a 60-second minimum between start times. An interrupted
+run is detected when its saved status says running but its process lock is gone.
+
+Only the latest small status file and two lock files are kept, outside public
+exports. This adds no report history. Disabling `CHECKER_WEB_ENABLED` and
+redeploying removes the control listener; scheduled checks and report serving
+continue. Docker's scheduler and web controller are supervised together so an
+unexpected exit of either causes the container to restart.
+
+Anyone who can reach the LAN page can deliberately start a check. The controller
+requires the configured Host/Origin and a per-startup request token to reject
+requests from unrelated websites. Tokens are not passwords or user authentication.
+GET/status requests cannot run checks, and POST accepts no body or arguments.
+Nginx proxies only `/api/check` to the internal listener on port 8081. Keep that port
+unpublished. The browser script is a fixed image asset, and report text remains
+HTML-escaped under a policy that forbids inline scripts and framing.
 
 ## Calendar subscription
 
@@ -113,8 +168,9 @@ client may display an unavailable-server message while away from the LAN.
 
 Only `data/public` is mounted into the report container. The checker copies the
 `.ics` there, leaving `calendar-data.json`, account configuration, availability
-state and price history outside the server's mount. The server has no Docker
-socket, checker process, upload endpoint or command execution endpoint. Unknown
+state and price history outside the server's mount. The report server has no Docker
+socket, checker process, account configuration or upload endpoint. The optional
+control endpoint accepts only a fixed check request. Unknown
 paths return 404; directory listings and symlink serving are disabled.
 
 The report includes the personal information already printed by the checker,

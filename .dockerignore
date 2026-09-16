@@ -5,6 +5,7 @@
 !CheckRoyalCaribbeanPrice.py
 !requirements.txt
 !entrypoint.sh
+!run_control.py
 
 # Exclude common development files
 .git
@@ -26,3 +27,5 @@ Thumbs.db
 # Local static report server build
 !web/
 !web/nginx.conf
+!web/run-control.js
+!web/empty-report.html
