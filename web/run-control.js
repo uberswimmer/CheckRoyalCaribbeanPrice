@@ -1,8 +1,17 @@
 /* Fixed LAN check action. Remote report content is never interpreted as code. */
 (() => {
   "use strict";
-  const panel = document.getElementById("run-control");
-  if (!panel) return;
+  let panel = document.getElementById("run-control");
+  if (!panel) {
+    panel = document.createElement("div");
+    panel.id = "run-control";
+    panel.hidden = true;
+    const heading = document.querySelector("h1");
+    if (heading) heading.after(panel);
+    else document.body.prepend(panel);
+  }
+  if (panel.dataset.ready) return;
+  panel.dataset.ready = "true";
   const button = document.createElement("button");
   button.type = "button";
   button.textContent = "Run check now";

@@ -46,6 +46,8 @@ for path, mime, marker in [('/', 'text/html', b'Example report'),
     assert headers['Cache-Control'] == 'no-cache'
     assert headers['X-Content-Type-Options'] == 'nosniff'
     assert "default-src 'none'" in headers['Content-Security-Policy']
+    if path == '/':
+        assert b'<script src="/run-control.js" defer></script>' in body
     assert fetch(path, 'HEAD')[0] == 200
     assert fetch(path, 'POST')[0] == 403
 for path in ['/config.yaml', '/calendar-data.json', '/index.html', '/.calendar-secret',

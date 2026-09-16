@@ -49,6 +49,10 @@ browser = playwright.chromium.launch(channel='chrome', headless=True, args=['--n
 page = browser.new_page()
 errors = []
 page.on('pageerror', lambda error: errors.append(str(error)))
+# Simulate a saved report from before the feature. Nginx adds the asset without
+# requiring a Portainer check first or rewriting any existing report file.
+(directory/'public/index.html').write_text('<!doctype html><html><head><title>Prior report</title></head>'
+    '<body><h1>Cruise checker report</h1><p>Prior saved report</p></body></html>')
 page.goto(base)
 button = page.get_by_role('button',name='Run check now')
 button.wait_for(state='visible')
