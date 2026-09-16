@@ -251,3 +251,10 @@ def test_new_reservation_failure_marks_partial_schedule_and_overnight_end(activi
     with pytest.raises(c.CalendarError):export.finish()
     assert 'schedule may be incomplete' in str(c.log.call_args_list)
     assert '23:30–00:30 (+1 day)' in str(c.log.call_args_list)
+
+
+def test_multiday_report_interval_uses_actual_day_count(activities):
+    calendar, payload = activities
+    payload['payload']['itineraryItems'][0]['offering'].update(dateTime='2099-10-11T10:00:00',endDateTime='2099-10-13T10:00:00')
+    run_capture(calendar)
+    assert '10:00–10:00 (+2 days)' in str(c.log.call_args_list)

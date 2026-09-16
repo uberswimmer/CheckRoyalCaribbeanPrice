@@ -4899,7 +4899,8 @@ class CalendarExport:
                     end = datetime.strptime(row["end"], "%Y%m%dT%H%M%S")
                     time_label += "–" + end.strftime("%H:%M")
                     if end.date() != start.date():
-                        time_label += " (+1 day)"
+                        days = (end.date() - start.date()).days
+                        time_label += f" (+{days} {'day' if days == 1 else 'days'})"
             add(sailing.key + "|activity|" + row["id"], fields,
                 activitySailing=sailing.key, activityScopes=sorted(row["scopes"]))
             canceled = " [Sailing canceled]" if record.get("canceled") else ""
