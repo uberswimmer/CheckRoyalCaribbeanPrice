@@ -4437,6 +4437,7 @@ class CalendarSettings:
     sailings: Tuple[CalendarSailing, ...] = ()
     output_directory: str = "data/calendar"
     reservations: Tuple[str, ...] = ()
+    include_activities: bool = False
 
 
 class CalendarError(Exception):
@@ -4446,12 +4447,15 @@ class CalendarError(Exception):
 def parse_calendar_config(raw: Any) -> Optional[CalendarSettings]:
     if raw is None:
         return None
-    if not isinstance(raw, dict) or set(raw) - {"enabled", "outputDirectory", "sailings", "reservations"}:
-        raise ValueError("calendar: expected enabled, outputDirectory and either reservations or sailings")
+    if not isinstance(raw, dict) or set(raw) - {"enabled", "outputDirectory", "sailings", "reservations", "includeActivities"}:
+        raise ValueError("calendar: expected enabled, outputDirectory, includeActivities and either reservations or sailings")
     if not isinstance(raw.get("enabled", True), bool):
         raise ValueError("calendar.enabled must be true or false")
     if not raw.get("enabled", True):
         return None
+    include_activities = raw.get("includeActivities", False)
+    if not isinstance(include_activities, bool):
+        raise ValueError("calendar.includeActivities must be true or false")
     directory = raw.get("outputDirectory", "data/calendar")
     if not isinstance(directory, str) or not directory.strip():
         raise ValueError("calendar.outputDirectory must be a directory path")
@@ -4469,7 +4473,7 @@ def parse_calendar_config(raw: Any) -> Optional[CalendarSettings]:
             if not re.fullmatch(r"[0-9]+", number) or int(number) == 0 or number in reservations:
                 raise ValueError(f"calendar.reservations[{index}]: supply a unique reservation number")
             reservations.append(number)
-        return CalendarSettings(output_directory=directory, reservations=tuple(reservations))
+        return CalendarSettings(output_directory=directory, reservations=tuple(reservations), include_activities=include_activities)
     items = raw.get("sailings")
     if not isinstance(items, list) or not items:
         raise ValueError("calendar.sailings must be a nonempty list")
@@ -4488,7 +4492,7 @@ def parse_calendar_config(raw: Any) -> Optional[CalendarSettings]:
             sailings.append(sailing)
         except (ValueError, TypeError, KeyError):
             raise ValueError(f"calendar.sailings[{index}]: supply a unique ship and valid sailDate") from None
-    return CalendarSettings(tuple(sailings), directory)
+    return CalendarSettings(tuple(sailings), directory, include_activities=include_activities)
 
 
 def booking_final_payment(booking: dict) -> Tuple[date, str]:
@@ -4563,6 +4567,94 @@ def calendar_port_events(info: dict) -> list:
     return ports
 
 
+def calendar_booked_activities(account: AccountInfo, booking: dict) -> list:
+    """Allowlist the personal itinerary, before any price-checker filtering."""
+    ship = booking["shipCode"]
+    sail_date = availability_date(booking["sailDate"])
+    reservation = str(booking["bookingId"])
+    nights = int(booking["numberOfNights"])
+    if nights <= 0 or not booking.get("passengerId"):
+        raise CalendarError("missing activity request context")
+    response = _execute_api_request(account, "GET",
+        "https://aws-prd.api.rccl.com/en/royal/web/commerce-api/calendar/v1/itinerary",
+        params={"passengerId": booking["passengerId"], "reservationId": reservation,
+                "sailingId": ship + sail_date.strftime("%Y%m%d"),
+                "currencyIso": booking.get("bookingCurrency") or "USD",
+                "includeMedia": "false", "includeAllBookings": "true"}, on_failure="retry")
+    if response is None or not 200 <= response.status_code < 300:
+        raise CalendarError("activity request failed")
+    try:
+        data = response.json()
+        if data.get("error") or data.get("errors") or data.get("warnings") or data.get("status") != 200:
+            raise ValueError()
+        items = data["payload"]["itineraryItems"]
+        if not isinstance(items, list):
+            raise ValueError()
+        activities = {}
+        def text(value):
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError()
+            # Do not allow remote control characters to alter terminal reports.
+            return " ".join(re.sub(r"[\x00-\x1f\x7f-\x9f]", " ", value).split())
+
+        def identifier(value):
+            if type(value) not in (str, int):
+                raise ValueError()
+            return text(str(value))
+
+        for item in items:
+            guests = item["guests"]
+            if not isinstance(guests, list):
+                raise ValueError()
+            booked = []
+            for guest in guests:
+                guest_reservation = identifier(guest["reservationId"])
+                if guest_reservation != reservation:
+                    continue
+                if guest["status"] not in {"BOOKED", "CANCELLED", "CANCELED"}:
+                    raise ValueError()
+                if guest["status"] == "BOOKED":
+                    booked.append(guest)
+            if not booked:
+                continue
+            product = item["productSummary"]
+            offering = item["offering"]
+            if not isinstance(offering["dateTime"], str) or "T" not in offering["dateTime"]:
+                raise ValueError()
+            start = datetime.fromisoformat(offering["dateTime"])
+            end_raw = offering.get("endDateTime")
+            end = datetime.fromisoformat(end_raw) if end_raw else None
+            # The observed endpoint supplies local clock times, without an offset.
+            # Fail visibly on a changed time contract rather than silently shifting it.
+            if start.tzinfo is not None or (end and end.tzinfo is not None):
+                raise ValueError()
+            if not sail_date <= start.date() <= sail_date + timedelta(days=nights):
+                raise ValueError()
+            if end and (end < start or end.date() > sail_date + timedelta(days=nights)):
+                raise ValueError()
+            fulfillments = [g.get("fulfillment") or {} for g in booked]
+            leisure = product.get("atYourLeisure") is True or any(
+                str(f.get("meetingTime") or "").strip().casefold() == "at your leisure" for f in fulfillments)
+            places = sorted({text(f.get("meetingLocation") or f.get("port")) for f in fulfillments
+                             if f.get("meetingLocation") or f.get("port")})
+            location = offering.get("meetingLocation") or offering.get("fulfillmentLocation")
+            location = text(location) if location else "; ".join(places)
+            identity = hashlib.sha256(json.dumps([ship, sail_date.isoformat(),
+                text(product["id"]), text(item["id"])], separators=(",", ":")).encode()).hexdigest()
+            row = {"id": identity, "title": text(product["title"]),
+                   "start": start.strftime("%Y%m%dT%H%M%S"),
+                   "end": end.strftime("%Y%m%dT%H%M%S") if end and end > start and not leisure else None,
+                   "leisure": leisure, "location": location,
+                   "guests": {hashlib.sha256(identifier(g["id"]).encode()).hexdigest(): text(g["firstName"]).title()
+                              for g in booked}}
+            if identity in activities and activities[identity] != row:
+                raise ValueError()
+            activities[identity] = row
+        return list(activities.values())
+    except (ValueError, KeyError, TypeError, AttributeError):
+        raise CalendarError("unrecognized or incomplete booked-activity response") from None
+
+
 def calendar_ics(events: dict) -> bytes:
     """RFC 5545 text escaping, CRLF and UTF-8-safe 75-octet line folding."""
     def escape(value):
@@ -4607,8 +4699,10 @@ def calendar_atomic_write(path: Path, contents: bytes, mode: int = 0o600) -> Non
 class CalendarExport:
     """One run's allowlisted capture. Persist previous values on failed requests.
 
-    Local files only. No credentials, raw booking numbers, passengers or amounts
-    are written. Configured friendly booking labels and cabin numbers are included. Each configured sailing is shared across accounts and cabins.
+    Local files only. No credentials, raw booking numbers or amounts are written.
+    Opt-in activity export includes guest first names, times and venues. Configured
+    friendly booking labels and cabin numbers are included. Each configured sailing
+    is shared across accounts and cabins.
     """
     def __init__(self, settings: CalendarSettings):
         self.settings = settings
@@ -4640,6 +4734,8 @@ class CalendarExport:
                     if payment in record.get("payments", {}):
                         bindings[binding] = key
                         break
+        self.activity_captured = set()
+        self.activity_failures = set()
         self.found_reservations = set()
         self.attempted = set()
         self.found = set()
@@ -4723,6 +4819,16 @@ class CalendarExport:
             except (CalendarError, ValueError, KeyError, TypeError, AttributeError):
                 self.problem(sailing, "existing check-in result unavailable")
             for booking in matches:
+                if self.settings.include_activities:
+                    scope = hashlib.sha256((sailing.key + "|" + str(booking["bookingId"])).encode()).hexdigest()
+                    if scope not in self.activity_captured:
+                        try:
+                            activities = calendar_booked_activities(account, booking)
+                            record.setdefault("activities", {})[scope] = {"items": activities, "capturedAt": self.now}
+                            self.activity_captured.add(scope)
+                        except (CalendarError, ValueError, KeyError, TypeError, AttributeError):
+                            self.activity_failures.add(sailing.key)
+                            self.problem(sailing, "booked activities capture failed")
                 try:
                     reservation = str(booking["bookingId"])
                     deadline, source = booking_final_payment(booking)
@@ -4744,15 +4850,84 @@ class CalendarExport:
                 except (ValueError, KeyError, TypeError, AttributeError):
                     self.problem(sailing, "payment capture failed")
 
+    def add_activity_events(self, sailing: CalendarSailing, record: dict, events: dict, add) -> None:
+        """Group selected cabins by session; share normalized data with the report."""
+        snapshots = record.get("activities", {})
+        grouped = {}
+        stale = False
+        for scope, snapshot in snapshots.items():
+            stale = stale or scope not in self.activity_captured
+            for row in snapshot["items"]:
+                identity = row["id"]
+                if identity not in grouped:
+                    grouped[identity] = dict(row, guests=dict(row["guests"]), scopes=[scope])
+                else:
+                    target = grouped[identity]
+                    if any(target[k] != row[k] for k in ("title", "start", "end", "leisure", "location")):
+                        self.problem(sailing, "conflicting booked activity details across selected cabins")
+                        # Never cancel an old event because two sources disagree.
+                        for uid, event in self.data["events"].items():
+                            if (event.get("activitySailing") == sailing.key
+                                    and set(event.get("activityScopes", [])) <= set(snapshots)):
+                                events[uid] = event
+                        log(f"  {sailing.key}: schedule inconsistent; previous calendar retained")
+                        return
+                    target["guests"].update(row["guests"])
+                    target["scopes"].append(scope)
+        log(f"  {BLUE}{record['shipName']} ({availability_date(sailing.sail_date).isoformat()}){RESET}")
+        if stale:
+            log(f"    {YELLOW}Includes previously captured activities; current schedule could not be fully refreshed{RESET}")
+        elif sailing.key in self.activity_failures:
+            log(f"    {YELLOW}Some selected reservations could not be refreshed; this schedule may be incomplete{RESET}")
+        if not grouped:
+            log("    No booked activities returned" if snapshots else "    Booked activity schedule unavailable")
+        for row in sorted(grouped.values(), key=lambda r: (r["start"], r["title"], r["id"])):
+            names = ", ".join(sorted(row["guests"].values()))
+            description = "Guests: " + names + "\nPublished Royal calendar time; onboard ship time may differ."
+            fields = {"SUMMARY": record["shipName"] + ": " + row["title"],
+                      "LOCATION": row["location"], "DESCRIPTION": description}
+            start = datetime.strptime(row["start"], "%Y%m%dT%H%M%S")
+            if row["leisure"]:
+                fields.update({"DTSTART;VALUE=DATE": start.strftime("%Y%m%d"), "TRANSP": "TRANSPARENT"})
+                fields["DESCRIPTION"] += "\nAt your leisure; Royal's placeholder timestamp is not an appointment."
+                time_label = "At your leisure"
+            else:
+                fields.update(DTSTART=row["start"], TRANSP="OPAQUE")
+                time_label = start.strftime("%H:%M")
+                if row["end"]:
+                    fields["DTEND"] = row["end"]
+                    end = datetime.strptime(row["end"], "%Y%m%dT%H%M%S")
+                    time_label += "–" + end.strftime("%H:%M")
+                    if end.date() != start.date():
+                        time_label += " (+1 day)"
+            add(sailing.key + "|activity|" + row["id"], fields,
+                activitySailing=sailing.key, activityScopes=sorted(row["scopes"]))
+            canceled = " [Sailing canceled]" if record.get("canceled") else ""
+            log(f"    {config.format_date(start.strftime('%Y%m%d'))}  {time_label:<17} {row['title']}{canceled}")
+            log(f"      {names}" + (f" | {row['location']}" if row["location"] else ""))
+        # Successful empty/changed snapshots cancel removed sessions. Failed requests
+        # keep their old snapshots, so their sessions stay present above.
+        for uid, old in self.data["events"].items():
+            if old.get("activitySailing") != sailing.key or uid in events:
+                continue
+            if not set(old.get("activityScopes", [])) or not set(old["activityScopes"]) <= set(snapshots):
+                continue  # Explicitly deselected reservations should disappear.
+            fields = dict(old["fields"], STATUS="CANCELLED")
+            events[uid] = dict(old, fields=fields,
+                sequence=old["sequence"] + (old["fields"].get("STATUS") != "CANCELLED"),
+                modified=old["modified"] if old["fields"].get("STATUS") == "CANCELLED" else self.now)
+        log(" ")
+
     def finish(self) -> None:
         events = {}
-        def add(identity, fields):
+        def add(identity, fields, **metadata):
             if record.get("canceled"):
                 fields["STATUS"] = "CANCELLED"
             uid = hashlib.sha256(identity.encode()).hexdigest()
             old = self.data["events"].get(uid)
             events[uid] = old if old and old["fields"] == fields else {
                 "fields": fields, "sequence": old["sequence"] + 1 if old else 0, "modified": self.now}
+            events[uid] = dict(events[uid], **metadata)
 
         if self.settings.reservations:
             for index, reservation in enumerate(self.settings.reservations):
@@ -4760,6 +4935,10 @@ class CalendarExport:
                     self.healthy = False
                     log_warn(f"{YELLOW}[Calendar] reservations[{index}] not found with a valid ship/date in retrieved Royal bookings; previous data retained{RESET}")
         selected = self.selected_sailings()
+        if self.settings.include_activities:
+            log(" ")
+            log(f"{BLUE}Scheduled Activities & Reservations{RESET}")
+            log(" ")
         for sailing in selected:
             if not self.settings.reservations and sailing.key not in self.found:
                 self.problem(sailing, "configured sailing not found in retrieved bookings")
@@ -4771,7 +4950,13 @@ class CalendarExport:
                                 for r in self.settings.reservations
                                 if self.data["reservations"].get(hashlib.sha256(r.encode()).hexdigest()) == sailing.key}
                 record["payments"] = {k: p for k, p in record["payments"].items() if k in payment_keys}
+            if self.settings.reservations:
+                record["activities"] = {k: v for k, v in record.get("activities", {}).items() if k in payment_keys}
+            if not self.settings.include_activities:
+                record.pop("activities", None)
             ship = record["shipName"]
+            if self.settings.include_activities:
+                self.add_activity_events(sailing, record, events, add)
             label = f"{ship} ({availability_date(sailing.sail_date).isoformat()})"
             for port in record.get("ports", []):
                 action = {"EMBARK": "Depart", "DEBARK": "Arrive"}.get(port["type"], "Visit")
