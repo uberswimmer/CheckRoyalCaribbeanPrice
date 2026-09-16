@@ -157,7 +157,8 @@ free shows), spa appointments, excursions and other scheduled products returned 
 Royal's personal itinerary to the same `cruises.ics` feed. No subscription URL,
 Compose, web server or schedule change is needed. The same data appears in a
 separate **Scheduled Activities & Reservations** section in the console and web
-report, sorted by sailing, date and time, with guest first names and available
+report, with sailings ordered by departure date and activities within each sailing
+ordered by date and time, with guest first names and available
 venue information. Price-notification exclusions do not exclude calendar activities.
 
 The checker uses its existing authenticated session to make a GET request to
@@ -179,8 +180,12 @@ the report, rather than treating a placeholder timestamp as an appointment.
 Only guests marked BOOKED are included. A successful, complete response replaces
 the last snapshot for that reservation; removed or canceled sessions become
 `STATUS:CANCELLED` events. A failed or malformed response retains the previous
-snapshot and clearly marks previously captured activities in the report. Successful
-empty results can clear a schedule; errors cannot. Event UIDs and revision numbers
+snapshot and clearly marks previously captured activities in the report.
+Capture-failure diagnostics identify request failures, API errors/warnings or the
+invalid response field without printing raw responses or guest identifiers. If a
+failure persists, share the full `[Calendar]` warning; a response capture may be
+needed to verify an unfamiliar format. Successful empty results can clear a
+schedule; errors cannot. Event UIDs and revision numbers
 remain stable when session identity is unchanged. Rebooking into another session
 cancels the old event and creates a new one. Cancellation records are retained for
 selected sailings so subscribed clients can observe them, rather than keeping an

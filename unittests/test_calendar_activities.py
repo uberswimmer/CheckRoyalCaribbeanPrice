@@ -286,3 +286,92 @@ def test_multiday_report_interval_uses_actual_day_count(activities):
     payload['payload']['itineraryItems'][0]['offering'].update(dateTime='2099-10-11T10:00:00',endDateTime='2099-10-13T10:00:00')
     run_capture(calendar)
     assert '10:00–10:00 (+2 days)' in str(c.log.call_args_list)
+
+
+@pytest.mark.parametrize('reservation_selection', [False, True])
+def test_report_sailings_follow_departure_dates_not_ship_or_config_order(activities, reservation_selection):
+    calendar, payload = activities
+    settings, account, booking, itinerary, *_ = calendar
+    sailings = (c.CalendarSailing('ST', '21000328'), c.CalendarSailing('WN', '20991130'),
+                c.CalendarSailing('UT', '21000212'), c.CalendarSailing('IC', '20991010'))
+    bookings = [dict(booking, shipCode=s.ship, sailDate=s.sail_date, bookingId=f'BOOKING_{i}')
+                for i, s in enumerate(sailings)]
+    settings = replace(settings, sailings=() if reservation_selection else sailings,
+                       reservations=tuple(b['bookingId'] for b in bookings) if reservation_selection else ())
+    itinerary['shipCode'] = None
+    payload['payload']['itineraryItems'] = []
+    export = c.CalendarExport(settings)
+    export.capture(account, bookings)
+    export.finish()
+    report = '\n'.join(call.args[0] for call in c.log.call_args_list)
+    dates = ['2099-10-10', '2099-11-30', '2100-02-12', '2100-03-28']
+    assert [report.index(d) for d in dates] == sorted(report.index(d) for d in dates)
+
+
+def test_report_sessions_are_chronological_across_selected_cabins(activities):
+    calendar, payload = activities
+    payload['payload']['itineraryItems'] = [
+        item('LATE', 'Evening show', '2099-10-12T20:00:00', '2099-10-12T21:00:00'),
+        item('EARLY', 'Morning tour', '2099-10-11T08:00:00', '2099-10-11T09:00:00')]
+    payload['payload']['itineraryItems'][0]['guests'] = [guest('SECOND_BOOKING', 'SECOND_GUEST')]
+    export = c.CalendarExport(calendar[0])
+    export.capture(calendar[1], [dict(calendar[2], bookingId='SECOND_BOOKING'), calendar[2]])
+    export.finish()
+    report = '\n'.join(call.args[0] for call in c.log.call_args_list)
+    assert report.index('Morning tour') < report.index('Evening show')
+
+
+@pytest.mark.parametrize('mutation, reason', [
+    (lambda p: p.update(error='PRIVATE_SERVER_ERROR'), 'contains API errors'),
+    (lambda p: p.update(warnings=['PRIVATE_SERVER_WARNING']), 'contains warnings'),
+    (lambda p: p.update(status=503), 'status is not 200'),
+    (lambda p: p['payload'].update(itineraryItems=None), 'payload.itineraryItems (expected a list)'),
+    (lambda p: p['payload']['itineraryItems'][0]['guests'][0].update(status='PRIVATE_STATUS'),
+     'itineraryItems[0].guests[0].status'),
+    (lambda p: p['payload']['itineraryItems'][0]['offering'].update(dateTime='PRIVATE_TIME'),
+     'itineraryItems[0].offering.dateTime'),
+    (lambda p: p['payload']['itineraryItems'][0]['offering'].update(dateTime='2099-10-11T20:15:00Z'),
+     'unexpected timezone offset'),
+    (lambda p: p['payload']['itineraryItems'][0]['offering'].update(dateTime='2099-11-11T20:15:00'),
+     'outside sailing dates'),
+    (lambda p: p['payload']['itineraryItems'][0]['offering'].update(endDateTime='PRIVATE_END'),
+     'itineraryItems[0].offering.endDateTime'),
+])
+def test_capture_failure_reports_safe_reason_and_retains_snapshot(activities, mutation, reason):
+    calendar, payload = activities
+    first = activity_events(run_capture(calendar))
+    mutation(payload)
+    export = c.CalendarExport(calendar[0])
+    export.capture(calendar[1], [calendar[2]])
+    with pytest.raises(c.CalendarError):
+        export.finish()
+    report = '\n'.join(call.args[0] for call in c.log_warn.call_args_list)
+    assert reason in report and 'previous data retained' in report
+    assert 'PRIVATE_' not in report
+    assert activity_events(export) == first
+
+
+@pytest.mark.parametrize('failure, reason', [
+    ('network', 'activity request failed'),
+    ('http', 'HTTP 403'),
+    ('json', 'not valid JSON'),
+    ('context', 'missing or invalid booking context'),
+])
+def test_request_failure_diagnostics_do_not_expose_raw_errors(activities, failure, reason):
+    calendar, _ = activities
+    first = activity_events(run_capture(calendar))
+    if failure == 'network':
+        c._execute_api_request.return_value = None
+    elif failure == 'http':
+        c._execute_api_request.return_value = Mock(status_code=403)
+    elif failure == 'json':
+        c._execute_api_request.return_value.json.side_effect = ValueError('PRIVATE_RAW_RESPONSE')
+    else:
+        calendar[2]['numberOfNights'] = 'PRIVATE_INVALID_NIGHTS'
+    export = c.CalendarExport(calendar[0])
+    export.capture(calendar[1], [calendar[2]])
+    with pytest.raises(c.CalendarError):
+        export.finish()
+    report = '\n'.join(call.args[0] for call in c.log_warn.call_args_list)
+    assert reason in report and 'PRIVATE_' not in report
+    assert activity_events(export) == first
