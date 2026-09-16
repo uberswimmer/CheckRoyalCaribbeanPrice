@@ -5,9 +5,12 @@ services:
     image: ${CHECKER_IMAGE:?Set CHECKER_IMAGE to your fork checker image}
     container_name: cruise-availability-checker
     restart: unless-stopped
+    stop_grace_period: 20s
     environment:
       TZ: ${TZ:-America/New_York}
       CRON_SCHEDULE: ${CRON_SCHEDULE:-0 7,19 * * *}
+      CHECKER_WEB_ENABLED: "true"
+      CHECKER_WEB_ORIGIN: "http://${LAN_IP:?Set LAN_IP to your Docker server LAN address}:${REPORT_PORT:-8088}"
     volumes:
       - type: bind
         source: ${CHECKER_HOME:-/home/docker/cruise-availability-checker}/config.availability.yaml

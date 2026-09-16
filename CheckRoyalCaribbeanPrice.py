@@ -5087,6 +5087,7 @@ class WebReport(logging.Handler):
                 '.red{color:#ff8980}.yellow{color:#fdd663}.red,.green{font-weight:bold}'
                 'pre{background:#0c0e10;padding:16px;overflow:auto;font:13px/1.5 monospace;tab-size:8}'
                 '</style></head><body><h1>Cruise checker report</h1>'
+                '<div id="run-control" hidden></div><script src="/run-control.js" defer></script>'
                 '<p><strong>' + html.escape(status) + '</strong><br>Started: ' + self.started +
                 '<br>Finished: ' + finished_at + '</p>'
                 '<p>This is a saved report. Refresh to see the latest run. A run left as Running '

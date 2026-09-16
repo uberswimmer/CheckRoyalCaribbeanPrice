@@ -50,6 +50,27 @@ jobs:
           python unittests/web_server_smoke.py http://127.0.0.1:8088 "$PWD/web-smoke"
           CHECKER_IMAGE=royal-availability:ci REPORT_IMAGE=royal-reports:ci LAN_IP=127.0.0.1 \
             docker compose -f compose.local-web.yaml config --quiet
+      - name: Exercise manual and scheduled check controls
+        shell: bash
+        run: |
+          # Browser test dependency only; Chrome is supplied by ubuntu-latest.
+          python -m pip install playwright
+          docker network create run-control-smoke
+          mkdir -p "$PWD/web-control-smoke/public"
+          chmod 755 "$PWD/web-control-smoke" "$PWD/web-control-smoke/public"
+          trap 'docker logs checker-control-smoke; docker logs report-control-smoke; docker rm -f checker-control-smoke report-control-smoke; docker network rm run-control-smoke' EXIT
+          docker run -d --name checker-control-smoke --network run-control-smoke \
+            --network-alias cruise-availability-checker \
+            -e CHECKER_WEB_ENABLED=true -e CHECKER_WEB_ORIGIN=http://127.0.0.1:8088 \
+            -e 'CRON_SCHEDULE=0 0 31 2 *' \
+            -v "$PWD/web-control-smoke:/app/data" \
+            -v "$PWD/unittests/control_checker_fixture.py:/app/CheckRoyalCaribbeanPrice.py:ro" \
+            royal-availability:ci
+          docker run -d --name report-control-smoke --network run-control-smoke \
+            --read-only --cap-drop ALL --security-opt no-new-privileges:true \
+            --tmpfs /tmp:rw,noexec,nosuid,size=16m,mode=1777 \
+            -p 127.0.0.1:8088:8080 -v "$PWD/web-control-smoke/public:/srv/exports:ro" royal-reports:ci
+          python unittests/run_control_smoke.py http://127.0.0.1:8088 "$PWD/web-control-smoke" checker-control-smoke
   publish:
     needs: test
     # PRs and development branches never change the published image.

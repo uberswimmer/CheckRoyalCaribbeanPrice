@@ -19,7 +19,8 @@ def fetch(path, method='GET', headers=None):
 
 for attempt in range(20):
     try:
-        assert fetch('/')[0] == 503  # Nothing generated yet; no directory listing.
+        status, _, body = fetch('/')
+        assert status == 200 and b'No report has been generated' in body
         break
     except URLError:
         time.sleep(0.25)
@@ -48,6 +49,7 @@ for path, mime, marker in [('/', 'text/html', b'Example report'),
     assert fetch(path, 'HEAD')[0] == 200
     assert fetch(path, 'POST')[0] == 403
 for path in ['/config.yaml', '/calendar-data.json', '/index.html', '/.calendar-secret',
+             '/status.json', '/run-control/status.json', '/empty-report.html',
              '/../etc/passwd', '/%2e%2e/etc/passwd', '/cruises.ics/anything']:
     assert fetch(path)[0] in (400, 404), path
 # Atomic replacements must become visible, even with a conditional request in the same second.

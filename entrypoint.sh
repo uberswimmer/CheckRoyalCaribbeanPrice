@@ -11,7 +11,7 @@ fi
 if [ "$1" = "check" ]; then
     # Execute the Python script directly for single price check
     shift
-    exec python CheckRoyalCaribbeanPrice.py "$@"
+    exec python /app/run_control.py check "$@"
 fi
 
 # If other arguments are provided, execute them
@@ -30,11 +30,15 @@ echo "TZ=$TZ" > /etc/environment
 
 # Create crontab with the specified schedule and timezone
 echo "TZ=$TZ" > /etc/crontabs/root
-echo "$CRON_SCHEDULE cd /app && python CheckRoyalCaribbeanPrice.py >> /proc/1/fd/1 2>&1" >> /etc/crontabs/root
+echo "$CRON_SCHEDULE cd /app && python /app/run_control.py check >> /proc/1/fd/1 2>&1" >> /etc/crontabs/root
 
 # Set permissions for crontab
 chmod 0600 /etc/crontabs/root
 
 # Start crond in foreground
 echo "Starting crond with schedule: $CRON_SCHEDULE (Timezone: $TZ)"
+if [ "${CHECKER_WEB_ENABLED:-false}" = "true" ]; then
+    # The optional controller supervises cron and accepts only fixed check requests.
+    exec python /app/run_control.py serve
+fi
 exec crond -f -d 8
