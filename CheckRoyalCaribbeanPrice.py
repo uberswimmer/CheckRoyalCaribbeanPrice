@@ -4585,6 +4585,16 @@ def calendar_booked_activities(account: AccountInfo, booking: dict) -> list:
         raise CalendarError("activity request failed")
     try:
         data = response.json()
+    except (ValueError, TypeError):
+        raise CalendarError("unrecognized or incomplete booked-activity response") from None
+    return parse_booked_activities(data, ship=ship, sail_date=sail_date,
+                                   reservation=reservation, nights=nights)
+
+
+def parse_booked_activities(data: dict, *, ship: str, sail_date: date,
+                           reservation: str, nights: int) -> list:
+    """Normalize one reservation's booked activities without requests or output."""
+    try:
         if data.get("error") or data.get("errors") or data.get("warnings") or data.get("status") != 200:
             raise ValueError()
         items = data["payload"]["itineraryItems"]
@@ -4653,6 +4663,23 @@ def calendar_booked_activities(account: AccountInfo, booking: dict) -> list:
         return list(activities.values())
     except (ValueError, KeyError, TypeError, AttributeError):
         raise CalendarError("unrecognized or incomplete booked-activity response") from None
+
+
+def group_booked_activities(snapshots: dict) -> list:
+    """Combine selected cabins by session without changing their saved snapshots."""
+    grouped = {}
+    for scope, snapshot in snapshots.items():
+        for row in snapshot["items"]:
+            identity = row["id"]
+            if identity not in grouped:
+                grouped[identity] = dict(row, guests=dict(row["guests"]), scopes=[scope])
+            else:
+                target = grouped[identity]
+                if any(target[k] != row[k] for k in ("title", "start", "end", "leisure", "location")):
+                    raise CalendarError("conflicting booked activity details across selected cabins")
+                target["guests"].update(row["guests"])
+                target["scopes"].append(scope)
+    return sorted(grouped.values(), key=lambda r: (r["start"], r["title"], r["id"]))
 
 
 def calendar_ics(events: dict) -> bytes:
@@ -4851,29 +4878,20 @@ class CalendarExport:
                     self.problem(sailing, "payment capture failed")
 
     def add_activity_events(self, sailing: CalendarSailing, record: dict, events: dict, add) -> None:
-        """Group selected cabins by session; share normalized data with the report."""
+        """Render grouped sessions and retain prior events when snapshots disagree."""
         snapshots = record.get("activities", {})
-        grouped = {}
-        stale = False
-        for scope, snapshot in snapshots.items():
-            stale = stale or scope not in self.activity_captured
-            for row in snapshot["items"]:
-                identity = row["id"]
-                if identity not in grouped:
-                    grouped[identity] = dict(row, guests=dict(row["guests"]), scopes=[scope])
-                else:
-                    target = grouped[identity]
-                    if any(target[k] != row[k] for k in ("title", "start", "end", "leisure", "location")):
-                        self.problem(sailing, "conflicting booked activity details across selected cabins")
-                        # Never cancel an old event because two sources disagree.
-                        for uid, event in self.data["events"].items():
-                            if (event.get("activitySailing") == sailing.key
-                                    and set(event.get("activityScopes", [])) <= set(snapshots)):
-                                events[uid] = event
-                        log(f"  {sailing.key}: schedule inconsistent; previous calendar retained")
-                        return
-                    target["guests"].update(row["guests"])
-                    target["scopes"].append(scope)
+        try:
+            grouped = group_booked_activities(snapshots)
+        except CalendarError as exc:
+            self.problem(sailing, str(exc))
+            # Never cancel an old event because two sources disagree.
+            for uid, event in self.data["events"].items():
+                if (event.get("activitySailing") == sailing.key
+                        and set(event.get("activityScopes", [])) <= set(snapshots)):
+                    events[uid] = event
+            log(f"  {sailing.key}: schedule inconsistent; previous calendar retained")
+            return
+        stale = any(scope not in self.activity_captured for scope in snapshots)
         log(f"  {BLUE}{record['shipName']} ({availability_date(sailing.sail_date).isoformat()}){RESET}")
         if stale:
             log(f"    {YELLOW}Includes previously captured activities; current schedule could not be fully refreshed{RESET}")
@@ -4881,7 +4899,7 @@ class CalendarExport:
             log(f"    {YELLOW}Some selected reservations could not be refreshed; this schedule may be incomplete{RESET}")
         if not grouped:
             log("    No booked activities returned" if snapshots else "    Booked activity schedule unavailable")
-        for row in sorted(grouped.values(), key=lambda r: (r["start"], r["title"], r["id"])):
+        for row in grouped:
             names = ", ".join(sorted(row["guests"].values()))
             description = "Guests: " + names + "\nPublished Royal calendar time; onboard ship time may differ."
             fields = {"SUMMARY": record["shipName"] + ": " + row["title"],

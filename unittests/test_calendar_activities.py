@@ -34,6 +34,34 @@ def activity_events(export):
     return {k:v for k,v in export.data['events'].items() if v.get('activitySailing')}
 
 
+def test_parser_and_grouping_can_be_reused_without_mutating_sources(activities):
+    calendar, payload = activities
+    payload['payload']['itineraryItems'][0]['guests'].append(guest('SECOND_BOOKING','SECOND_GUEST','SECOND'))
+    original = copy.deepcopy(payload)
+    snapshots = {reservation: {'items': c.parse_booked_activities(payload,
+        ship='IC', sail_date=c.date(2099, 10, 10), reservation=reservation, nights=7)}
+        for reservation in ('PRIVATE_BOOKING', 'SECOND_BOOKING')}
+    saved = copy.deepcopy(snapshots)
+    grouped = c.group_booked_activities(snapshots)
+    assert len(grouped) == 1
+    assert set(grouped[0]['guests'].values()) == {'Example', 'Second'}
+    assert set(grouped[0]['scopes']) == set(snapshots)
+    grouped[0]['guests'].clear()
+    grouped[0]['scopes'].clear()
+    assert snapshots == saved and payload == original
+    c._execute_api_request.assert_not_called()
+    c.log.assert_not_called()
+
+
+def test_invalid_json_refresh_preserves_previous_schedule(activities):
+    calendar, _ = activities
+    first = activity_events(run_capture(calendar))
+    c._execute_api_request.return_value.json.side_effect = ValueError('not JSON')
+    export = c.CalendarExport(calendar[0]); export.capture(calendar[1],[calendar[2]])
+    with pytest.raises(c.CalendarError): export.finish()
+    assert activity_events(export) == first
+
+
 def test_request_and_schedule_are_shared_by_feed_report_and_private_capture(activities):
     calendar, payload = activities
     show = payload['payload']['itineraryItems'][0]
