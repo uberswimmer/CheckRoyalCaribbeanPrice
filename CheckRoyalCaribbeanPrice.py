@@ -3762,6 +3762,11 @@ def _calculate_passenger_metrics(
 ##################################
 # Reservation availability (opt-in)
 ##################################
+# Product types and storefront categories are not interchangeable: Royal lists
+# the captured escape rooms alongside shows in the entertainment catalog.
+_AVAILABILITY_CATALOGS = {"show": "show", "dining": "dining", "onboardActivities": "show"}
+
+
 @dataclass(frozen=True)
 class AvailabilityWatch:
     id: str
@@ -3842,8 +3847,8 @@ def parse_availability_config(raw: Any) -> Optional[AvailabilitySettings]:
         ids.add(wid)
         category = w.get("category")
         mode = w.get("mode", "release")
-        if category not in ("show", "dining") or mode not in ("release", "party"):
-            fail("category must be show/dining and mode release/party")
+        if not isinstance(category, str) or category not in _AVAILABILITY_CATALOGS or mode not in ("release", "party"):
+            fail("category must be show/dining/onboardActivities and mode release/party")
         product = identifier(w["product"], "product") if "product" in w else None
         if category == "dining" and product is None:
             fail("dining watches require a product code")
@@ -4058,7 +4063,10 @@ def _evaluate_availability(data: dict, watch: AvailabilityWatch, product: str,
     party_guests = []
     unknown_guest = False
     global_block = False
+    age_block = False
     if watch.mode == "party":
+        if watch.category == "onboardActivities" and p.get("salesUnit") != "PER_SEAT":
+            return result("unknown", "unsupported activity sales unit")
         guests = p.get("guests")
         if not isinstance(guests, list):
             return result("unknown", "missing guest eligibility")
@@ -4081,6 +4089,8 @@ def _evaluate_availability(data: dict, watch: AvailabilityWatch, product: str,
                     return result("unknown", "malformed guest issue")
                 if issue.get("type") == "BOOKING_LIMIT_REACHED":
                     global_block = True
+                elif issue.get("type") == "AGE_REQUIREMENT_NOT_MET":
+                    age_block = True
                 elif issue.get("type") != "USER_HAS_HARD_CONFLICT":
                     unknown_guest = True
                 elif not ((issue.get("conflict") or {}).get("offering") or {}).get("id"):
@@ -4092,6 +4102,8 @@ def _evaluate_availability(data: dict, watch: AvailabilityWatch, product: str,
                 unknown_guest = True
             elif len(party) > limit:
                 global_block = True
+        if age_block:
+            return result("unavailable", "guest age requirement not met")
         if global_block:
             return result("unavailable", "guest booking allowance or party limit reached")
     available = []
@@ -4137,7 +4149,7 @@ def _evaluate_availability(data: dict, watch: AvailabilityWatch, product: str,
                 affected = issue.get("guestId")
                 if affected is not None and str(affected) not in {g[0] for g in party}:
                     continue
-                if issue.get("type") in ("USER_HAS_HARD_CONFLICT", "BOOKING_LIMIT_REACHED"):
+                if issue.get("type") in ("USER_HAS_HARD_CONFLICT", "BOOKING_LIMIT_REACHED", "AGE_REQUIREMENT_NOT_MET"):
                     blocked = True
                 else:
                     issue_unknown = True
@@ -4228,7 +4240,7 @@ def deliver_availability(settings: AvailabilitySettings, account: AccountInfo, b
                 params = urlencode({"bookingId": str(booking["bookingId"]), "shipCode": booking["shipCode"],
                                     "sailDate": availability_date(booking["sailDate"]).strftime("%Y%m%d")})
                 lines.extend(["", "Cruise Planner:",
-                    f"https://www.royalcaribbean.com/account/cruise-planner/category/pt_{watch.category}?{params}",
+                    f"https://www.royalcaribbean.com/account/cruise-planner/category/pt_{_AVAILABILITY_CATALOGS[watch.category]}?{params}",
                     "Times as returned by Royal. Confirm availability in Cruise Planner."])
                 if watch.category == "dining":
                     lines.append("Reported stock does not guarantee a table for the full party.")
@@ -4285,10 +4297,11 @@ def process_availability_bookings(account: AccountInfo, bookings: list, settings
                 continue
             party = availability_party(watch, booking)
             # Complete the whole catalog before declaring a product absent.
-            catalog_key = (watch.reservation, watch.category)
+            catalog_category = _AVAILABILITY_CATALOGS[watch.category]
+            catalog_key = (watch.reservation, catalog_category)
             if catalog_key not in catalogs:
                 try:
-                    catalogs[catalog_key] = availability_products(account, booking, watch.category)
+                    catalogs[catalog_key] = availability_products(account, booking, catalog_category)
                 except (AvailabilityUnknown, KeyError, TypeError, AttributeError, ValueError) as exc:
                     reason = str(exc) if isinstance(exc, AvailabilityUnknown) else "malformed catalog response"
                     catalogs[catalog_key] = AvailabilityUnknown(reason)
@@ -4326,10 +4339,12 @@ def process_availability_bookings(account: AccountInfo, bookings: list, settings
                     results.append(AvailabilityResult(pid, title, "unknown", reason))
             if watch.product and not products:
                 results.append(AvailabilityResult(watch.product, watch.name, "unavailable", "product not listed"))
+            kind = "onboard activity" if watch.category == "onboardActivities" else "show"
             if not products and not watch.product:
-                log(f"      {YELLOW}No entertainment products listed{RESET}")
+                label = "onboard activity" if watch.category == "onboardActivities" else "entertainment"
+                log(f"      {YELLOW}No {label} products listed{RESET}")
             elif skipped and skipped == len(products):
-                log(f"      {YELLOW}No matching show products listed "
+                log(f"      {YELLOW}No matching {kind} products listed "
                     f"({skipped} other-category products skipped){RESET}")
             # Previously seen shows that disappear from a complete catalog are
             # genuinely absent. Errors/partial pages never reach this branch.
