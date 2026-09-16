@@ -1,8 +1,8 @@
 # Upstream baseline
 
 - Repository: https://github.com/jdeath/CheckRoyalCaribbeanPrice
-- Baseline commit: `613e6880606ab138c1b1d560322e59d74ad5eadf`
-- Commit subject: Delete .DS_Store
+- Baseline commit: `7dbd6cb9332c5934caa7ba11060f40a15c7904dd`
+- Commit subject: Merge pull request #117 from tecmage/fix-nights-brand
 - Published release included: `3.6.0` (`ac2a0ecbbbdd120622fd4f2c9d87161fdc0ef323`)
 - Local development branch: `feature/availability-watches`
 - Extension version: `0.1.0-test`
