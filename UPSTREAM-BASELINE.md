@@ -1,8 +1,8 @@
 # Upstream baseline
 
 - Repository: https://github.com/jdeath/CheckRoyalCaribbeanPrice
-- Baseline commit: `7dbd6cb9332c5934caa7ba11060f40a15c7904dd`
-- Commit subject: Merge pull request #117 from tecmage/fix-nights-brand
+- Baseline commit: `eaaf68fe9a80cda2a455a88305fcd81f33862962`
+- Commit subject: Fix for #119
 - Published release included: `3.6.0` (`ac2a0ecbbbdd120622fd4f2c9d87161fdc0ef323`)
 - Local development branch: `feature/availability-watches`
 - Extension version: `0.1.0-test`

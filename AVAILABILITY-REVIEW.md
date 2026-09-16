@@ -154,3 +154,7 @@ The merge applied cleanly. Availability monitoring, scheduled checks,
 configuration compatibility, persistent notification state, scoped price-alert
 exclusions, and the dedicated GHCR workflow are unchanged. No configuration or
 state migration is required.
+
+## Upstream cabin-subtype and final-payment sync review
+
+Upstream `main` through `eaaf68fe9a80cda2a455a88305fcd81f33862962` was merged on an isolated review branch. Git merged the source and tests cleanly. Review verifies that Royal's renamed funnel subtype-code fallback coexists with the fork's tri-state cabin-inventory result, and that the best-price path now displays an expired final-payment date. Entertainment/dining availability orchestration, scheduled checks, persistent notification state, configuration compatibility, calendar/report exports, and the dedicated GHCR workflow are unchanged. No configuration or state migration is required.
