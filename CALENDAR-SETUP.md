@@ -116,7 +116,8 @@ Back up both files together if moving the installation.
 The capture retains selected itinerary fields, the existing checker's opening datetime,
 deadline source/status, capture timestamps, calendar revision data and hashed
 reservation-to-sailing bindings used to retain data when a booking is missing. It does not
-store credentials, session tokens, raw booking numbers, passenger lists or prices.
+store credentials, session tokens, raw booking numbers or prices. Activity export additionally retains participating
+guest first names and hashed guest/session identifiers when enabled.
 Sailing details, cabin numbers and configured friendly labels are personal travel
 information. Opaque booking hashes are identifiers, not access controls. Keep both
 files outside Git. Optional local hosting publishes only the ICS file from this
@@ -137,3 +138,59 @@ The availability console section uses separate spacer records between sections
 and watches, nested indentation for account/watch/result/time, and reports completion
 before the check-in/payment table. Failures still allow price summaries and exports
 to finish before the run exits nonzero.
+
+## Booked activities and reservations
+
+Add `includeActivities: true` to the existing `calendar` block:
+
+```yaml
+calendar:
+  enabled: true
+  outputDirectory: /app/data/calendar
+  reservations:
+    - "1000001" # Fictional example; keep your existing selection
+  includeActivities: true
+```
+
+This optional setting defaults to false. It adds booked dining, shows (including
+free shows), spa appointments, excursions and other scheduled products returned by
+Royal's personal itinerary to the same `cruises.ics` feed. No subscription URL,
+Compose, web server or schedule change is needed. The same data appears in a
+separate **Scheduled Activities & Reservations** section in the console and web
+report, sorted by sailing, date and time, with guest first names and available
+venue information. Price-notification exclusions do not exclude calendar activities.
+
+The checker uses its existing authenticated session to make a GET request to
+`/en/royal/web/commerce-api/calendar/v1/itinerary` for each selected reservation.
+Successful captures are reused across accounts during the run. Although Royal may
+return linked bookings, only guests belonging to selected reservations are exported.
+List each desired cabin to include its guests. Shared sessions across selected
+cabins become one calendar event. With the older ship/date selection, all retrieved
+bookings on the selected sailing are included.
+
+Times remain the offset-free clock values supplied by Royal, matching the existing
+published-local-time approach. No home, port or ship timezone is inferred. Follow
+onboard schedule changes; this endpoint cannot establish the captain's ship time.
+Explicit end times take precedence over durations in product names. Missing or equal
+end times produce a start-only event. “At Your Leisure” meeting instructions or the
+product's leisure flag produce a transparent all-day event, labeled accordingly in
+the report, rather than treating a placeholder timestamp as an appointment.
+
+Only guests marked BOOKED are included. A successful, complete response replaces
+the last snapshot for that reservation; removed or canceled sessions become
+`STATUS:CANCELLED` events. A failed or malformed response retains the previous
+snapshot and clearly marks previously captured activities in the report. Successful
+empty results can clear a schedule; errors cannot. Event UIDs and revision numbers
+remain stable when session identity is unchanged. Rebooking into another session
+cancels the old event and creates a new one. Cancellation records are retained for
+selected sailings so subscribed clients can observe them, rather than keeping an
+unlimited report history. Removing a selection removes its activity data; setting
+`includeActivities: false` removes activity exports on the next completed calendar
+run while leaving itinerary, check-in and payment events enabled.
+
+The exported feed and local report now contain first names and personal activity
+times when enabled. The private capture stores only normalized activity fields,
+first names and opaque identifiers, never raw API responses, birth dates, surnames,
+order numbers, booking numbers or authentication tokens. Keep captures and generated
+files out of Git. Genie arrangements can appear only when Royal exposes them in the
+personal itinerary. This feature does not create or change any Royal reservations.
