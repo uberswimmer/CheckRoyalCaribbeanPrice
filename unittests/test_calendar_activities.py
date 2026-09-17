@@ -299,7 +299,7 @@ def untimed_package(category):
 def test_untimed_packages_do_not_discard_booked_appointments(activities):
     calendar, payload = activities
     payload['payload']['itineraryItems'].extend(
-        untimed_package(category) for category in ('pt_packages', 'pt_internet'))
+        untimed_package(category) for category in ('pt_packages', 'pt_internet', 'pt_beverage'))
     export = run_capture(calendar)
     assert export.healthy
     assert len(activity_events(export)) == 1
@@ -308,7 +308,7 @@ def test_untimed_packages_do_not_discard_booked_appointments(activities):
     c.log_warn.assert_not_called()
 
 
-@pytest.mark.parametrize('category', ['pt_packages', 'pt_internet'])
+@pytest.mark.parametrize('category', ['pt_packages', 'pt_internet', 'pt_beverage'])
 def test_dated_package_is_still_exported(activities, category):
     calendar, payload = activities
     payload['payload']['itineraryItems'][0]['productSummary']['productTypeCategory'] = {'id': category}
@@ -340,10 +340,11 @@ def test_only_untimed_packages_is_a_successful_empty_schedule(activities):
     lambda r: r['guests'][0]['fulfillment'].update(meetingDate='2099-10-11'),
     lambda r: r['guests'][0]['fulfillment'].update(meetingTime='20:15'),
 ])
-def test_missing_appointment_time_or_ambiguous_package_still_retains_previous_data(activities, mutation):
+@pytest.mark.parametrize('category', ['pt_packages', 'pt_internet', 'pt_beverage'])
+def test_missing_appointment_time_or_ambiguous_package_still_retains_previous_data(activities, mutation, category):
     calendar, payload = activities
     previous = activity_events(run_capture(calendar))
-    row = untimed_package('pt_packages')
+    row = untimed_package(category)
     mutation(row)
     payload['payload']['itineraryItems'].append(row)
     export = c.CalendarExport(calendar[0])

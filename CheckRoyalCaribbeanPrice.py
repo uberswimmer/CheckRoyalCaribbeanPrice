@@ -4653,7 +4653,7 @@ def parse_booked_activities(data: dict, *, ship: str, sail_date: date,
             # times and no other scheduling information. Dated package entries
             # still belong in the calendar; malformed appointments must fail.
             category = product.get("productTypeCategory") or {}
-            if (category.get("id") in {"pt_packages", "pt_internet"}
+            if (category.get("id") in {"pt_packages", "pt_internet", "pt_beverage"}
                     and offering["dateTime"] is None and offering["endDateTime"] is None
                     and offering.get("dayOfCruise") is None
                     and not offering.get("meetingTime")

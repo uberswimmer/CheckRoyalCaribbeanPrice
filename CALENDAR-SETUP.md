@@ -161,8 +161,8 @@ report, with sailings ordered by departure date and activities within each saili
 ordered by date and time, with guest first names and available
 venue information. Price-notification exclusions do not exclude calendar activities.
 Royal may also return untimed package purchases in this response. Package
-(`pt_packages`) and internet (`pt_internet`) entries with explicitly null start
-and end times and no other scheduling information are omitted. Dated entries
+(`pt_packages`), internet (`pt_internet`) and beverage (`pt_beverage`) entries
+with explicitly null start and end times and no other scheduling information are omitted. Dated entries
 remain included. Missing times on appointments or unfamiliar product types still
 report a capture failure and retain previous data; no appointment time is invented.
 
