@@ -4569,24 +4569,29 @@ def calendar_port_events(info: dict) -> list:
 
 def calendar_booked_activities(account: AccountInfo, booking: dict) -> list:
     """Allowlist the personal itinerary, before any price-checker filtering."""
-    ship = booking["shipCode"]
-    sail_date = availability_date(booking["sailDate"])
-    reservation = str(booking["bookingId"])
-    nights = int(booking["numberOfNights"])
-    if nights <= 0 or not booking.get("passengerId"):
-        raise CalendarError("missing activity request context")
+    try:
+        ship = booking["shipCode"]
+        sail_date = availability_date(booking["sailDate"])
+        reservation = str(booking["bookingId"])
+        nights = int(booking["numberOfNights"])
+        if nights <= 0 or not booking.get("passengerId"):
+            raise ValueError()
+    except (AvailabilityUnknown, ValueError, KeyError, TypeError):
+        raise CalendarError("missing or invalid booking context (ship, sailing date, reservation, passenger or nights)") from None
     response = _execute_api_request(account, "GET",
         "https://aws-prd.api.rccl.com/en/royal/web/commerce-api/calendar/v1/itinerary",
         params={"passengerId": booking["passengerId"], "reservationId": reservation,
                 "sailingId": ship + sail_date.strftime("%Y%m%d"),
                 "currencyIso": booking.get("bookingCurrency") or "USD",
                 "includeMedia": "false", "includeAllBookings": "true"}, on_failure="retry")
-    if response is None or not 200 <= response.status_code < 300:
-        raise CalendarError("activity request failed")
+    if response is None:
+        raise CalendarError("activity request failed; see preceding API warning")
+    if not 200 <= response.status_code < 300:
+        raise CalendarError(f"activity request returned HTTP {response.status_code}")
     try:
         data = response.json()
     except (ValueError, TypeError):
-        raise CalendarError("unrecognized or incomplete booked-activity response") from None
+        raise CalendarError("activity response is not valid JSON") from None
     return parse_booked_activities(data, ship=ship, sail_date=sail_date,
                                    reservation=reservation, nights=nights)
 
@@ -4594,9 +4599,17 @@ def calendar_booked_activities(account: AccountInfo, booking: dict) -> list:
 def parse_booked_activities(data: dict, *, ship: str, sail_date: date,
                            reservation: str, nights: int) -> list:
     """Normalize one reservation's booked activities without requests or output."""
+    # Paths are generated locally. Response values and raw exception text may
+    # contain guest details or booking identifiers and must not be logged here.
+    field = "response envelope"
     try:
-        if data.get("error") or data.get("errors") or data.get("warnings") or data.get("status") != 200:
-            raise ValueError()
+        if data.get("error") or data.get("errors"):
+            raise CalendarError("activity response contains API errors")
+        if data.get("warnings"):
+            raise CalendarError("activity response contains warnings; completeness cannot be confirmed")
+        if data.get("status") != 200:
+            raise CalendarError("activity response status is not 200")
+        field = "payload.itineraryItems (expected a list)"
         items = data["payload"]["itineraryItems"]
         if not isinstance(items, list):
             raise ValueError()
@@ -4612,36 +4625,59 @@ def parse_booked_activities(data: dict, *, ship: str, sail_date: date,
                 raise ValueError()
             return text(str(value))
 
-        for item in items:
+        for index, item in enumerate(items):
+            path = f"payload.itineraryItems[{index}]"
+            field = path + ".guests (expected a list)"
             guests = item["guests"]
             if not isinstance(guests, list):
                 raise ValueError()
             booked = []
-            for guest in guests:
+            for guest_index, guest in enumerate(guests):
+                field = path + f".guests[{guest_index}].reservationId"
                 guest_reservation = identifier(guest["reservationId"])
                 if guest_reservation != reservation:
                     continue
+                field = path + f".guests[{guest_index}].status (expected BOOKED or canceled)"
                 if guest["status"] not in {"BOOKED", "CANCELLED", "CANCELED"}:
                     raise ValueError()
                 if guest["status"] == "BOOKED":
                     booked.append(guest)
             if not booked:
                 continue
+            field = path + ".productSummary"
             product = item["productSummary"]
+            field = path + ".offering.dateTime (expected a local date and time)"
             offering = item["offering"]
+            # Royal includes untimed package purchases in this itinerary too.
+            # Only omit observed non-appointment types with explicitly null
+            # times and no other scheduling information. Dated package entries
+            # still belong in the calendar; malformed appointments must fail.
+            category = product.get("productTypeCategory") or {}
+            if (category.get("id") in {"pt_packages", "pt_internet", "pt_beverage"}
+                    and offering["dateTime"] is None and offering["endDateTime"] is None
+                    and offering.get("dayOfCruise") is None
+                    and not offering.get("meetingTime")
+                    and all(not (g.get("fulfillment") or {}).get(key)
+                            for g in booked for key in ("meetingDate", "meetingTime"))):
+                continue
             if not isinstance(offering["dateTime"], str) or "T" not in offering["dateTime"]:
                 raise ValueError()
             start = datetime.fromisoformat(offering["dateTime"])
+            field = path + ".offering.endDateTime"
             end_raw = offering.get("endDateTime")
             end = datetime.fromisoformat(end_raw) if end_raw else None
             # The observed endpoint supplies local clock times, without an offset.
             # Fail visibly on a changed time contract rather than silently shifting it.
+            field = path + ".offering times (unexpected timezone offset)"
             if start.tzinfo is not None or (end and end.tzinfo is not None):
                 raise ValueError()
+            field = path + ".offering.dateTime (outside sailing dates)"
             if not sail_date <= start.date() <= sail_date + timedelta(days=nights):
                 raise ValueError()
+            field = path + ".offering.endDateTime (before start or outside sailing dates)"
             if end and (end < start or end.date() > sail_date + timedelta(days=nights)):
                 raise ValueError()
+            field = path + ".productSummary or guest fulfillment/location"
             fulfillments = [g.get("fulfillment") or {} for g in booked]
             leisure = product.get("atYourLeisure") is True or any(
                 str(f.get("meetingTime") or "").strip().casefold() == "at your leisure" for f in fulfillments)
@@ -4649,20 +4685,23 @@ def parse_booked_activities(data: dict, *, ship: str, sail_date: date,
                              if f.get("meetingLocation") or f.get("port")})
             location = offering.get("meetingLocation") or offering.get("fulfillmentLocation")
             location = text(location) if location else "; ".join(places)
+            field = path + ".productSummary.id or id"
             identity = hashlib.sha256(json.dumps([ship, sail_date.isoformat(),
                 text(product["id"]), text(item["id"])], separators=(",", ":")).encode()).hexdigest()
+            field = path + ".productSummary.title or booked guest id/firstName"
             row = {"id": identity, "title": text(product["title"]),
                    "start": start.strftime("%Y%m%dT%H%M%S"),
                    "end": end.strftime("%Y%m%dT%H%M%S") if end and end > start and not leisure else None,
                    "leisure": leisure, "location": location,
                    "guests": {hashlib.sha256(identifier(g["id"]).encode()).hexdigest(): text(g["firstName"]).title()
                               for g in booked}}
+            field = path + " (conflicting duplicate session)"
             if identity in activities and activities[identity] != row:
                 raise ValueError()
             activities[identity] = row
         return list(activities.values())
     except (ValueError, KeyError, TypeError, AttributeError):
-        raise CalendarError("unrecognized or incomplete booked-activity response") from None
+        raise CalendarError("invalid or missing " + field) from None
 
 
 def group_booked_activities(snapshots: dict) -> list:
@@ -4853,9 +4892,12 @@ class CalendarExport:
                             activities = calendar_booked_activities(account, booking)
                             record.setdefault("activities", {})[scope] = {"items": activities, "capturedAt": self.now}
                             self.activity_captured.add(scope)
-                        except (CalendarError, ValueError, KeyError, TypeError, AttributeError):
+                        except CalendarError as exc:
                             self.activity_failures.add(sailing.key)
-                            self.problem(sailing, "booked activities capture failed")
+                            self.problem(sailing, f"booked activities capture failed ({exc})")
+                        except (ValueError, KeyError, TypeError, AttributeError):
+                            self.activity_failures.add(sailing.key)
+                            self.problem(sailing, "booked activities capture failed (invalid booking or response structure)")
                 try:
                     reservation = str(booking["bookingId"])
                     deadline, source = booking_final_payment(booking)
@@ -4953,7 +4995,7 @@ class CalendarExport:
                 if reservation not in self.found_reservations:
                     self.healthy = False
                     log_warn(f"{YELLOW}[Calendar] reservations[{index}] not found with a valid ship/date in retrieved Royal bookings; previous data retained{RESET}")
-        selected = self.selected_sailings()
+        selected = sorted(self.selected_sailings(), key=lambda sailing: (sailing.sail_date, sailing.ship))
         if self.settings.include_activities:
             log(" ")
             log(f"{BLUE}Scheduled Activities & Reservations{RESET}")
