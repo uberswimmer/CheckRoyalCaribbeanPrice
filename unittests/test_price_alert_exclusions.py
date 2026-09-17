@@ -11,8 +11,8 @@ import CheckRoyalCaribbeanPrice as c
 @pytest.fixture
 def addon(monkeypatch):
     config = c.CruiseAppConfig()
-    config.history = Mock()
     monkeypatch.setattr(c, 'config', config)
+    monkeypatch.setattr(c, 'history', Mock())
     monkeypatch.setattr(c, 'log', Mock())
     response = Mock()
     response.json.return_value = {'payload': {
@@ -43,7 +43,7 @@ def test_exclusion_suppresses_delivery_but_preserves_report_and_history(addon, f
     assert record['CurrentPrice'] == 150
     assert any('Example treatment Price is lower: 150 USD than 180 USD' in str(call)
                and 'suppressed by ignoredPriceAlerts' in str(call) for call in c.log.call_args_list)
-    history = config.history.record_addon.call_args.kwargs
+    history = c.history.record_addon.call_args.kwargs
     assert history['current_price'] == 150
     assert history['rebook_decision'] == 'suppressed_by_configuration'
     assert history['notified'] is False

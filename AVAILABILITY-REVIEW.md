@@ -158,3 +158,20 @@ state migration is required.
 ## Upstream cabin-subtype and final-payment sync review
 
 Upstream `main` through `eaaf68fe9a80cda2a455a88305fcd81f33862962` was merged on an isolated review branch. Git merged the source and tests cleanly. Review verifies that Royal's renamed funnel subtype-code fallback coexists with the fork's tri-state cabin-inventory result, and that the best-price path now displays an expired final-payment date. Entertainment/dining availability orchestration, scheduled checks, persistent notification state, configuration compatibility, calendar/report exports, and the dedicated GHCR workflow are unchanged. No configuration or state migration is required.
+
+## Upstream pricing-failure and payment-market sync review
+
+Upstream `main` through `c3863a148118b386a54c837bf5fcedd8b3027ef1`
+was merged on an isolated review branch. The update distinguishes failed cabin and
+add-on pricing requests from confirmed unavailability, fixes insured/all-inclusive
+override keys, and evaluates final-payment deadlines using the booking market rather
+than the travel agency's office country.
+
+The source overlap was reconciled so a failed pricing request cannot close or re-arm
+the fork's persistent cabin-availability state, while a successful empty-room response
+remains a confirmed sellout. The calendar export now uses the same market-aware
+deadline helper as price checks. The upstream price-history global refactor was carried
+through the fork's orchestration and tests. Entertainment/dining availability,
+scheduled checks, configuration compatibility, persistent notification state,
+calendar/report exports, and the dedicated GHCR workflow remain intact. No
+configuration or state migration is required.
