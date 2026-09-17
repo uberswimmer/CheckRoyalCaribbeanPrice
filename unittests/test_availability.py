@@ -42,6 +42,7 @@ def globals_without_network(monkeypatch):
     conf.apobj = Mock()
     conf.apobj.notify.return_value = True
     monkeypatch.setattr(c, 'config', conf)
+    monkeypatch.setattr(c, 'history', Mock())
     monkeypatch.setattr(c, 'log', Mock())
     monkeypatch.setattr(c, 'log_warn', Mock())
     monkeypatch.setattr(c, '_execute_api_request', Mock(side_effect=AssertionError('Unmocked network call')))
@@ -666,7 +667,7 @@ def test_availability_console_uses_status_colors_and_groups_times(context):
 @pytest.mark.parametrize('failure', ['check', 'missing_booking', 'booking_lookup'])
 def test_combined_failure_finishes_price_outputs_and_marks_run_failed(context, monkeypatch, failure):
     a, b = setup_combined_console(context, monkeypatch)
-    c.config.history = Mock()
+    c.history = Mock()
     c.config.output_watch_as_json = True
     events = []
     bookings = [b] if failure == 'check' else ([] if failure == 'missing_booking' else None)
@@ -678,7 +679,7 @@ def test_combined_failure_finishes_price_outputs_and_marks_run_failed(context, m
     with pytest.raises(c.AvailabilityUnknown):
         c.main()
     assert events == ['prospective', 'summary', 'export']
-    assert c.config.history.finish_run.call_args.args[0] == 'error'
+    assert c.history.finish_run.call_args.args[0] == 'error'
     a.access.session.close.assert_called_once()
     if failure == 'missing_booking':
         assert any('Configured reservations were not found' in call.args[0] for call in c.log_warn.call_args_list)
@@ -686,14 +687,14 @@ def test_combined_failure_finishes_price_outputs_and_marks_run_failed(context, m
 
 def test_combined_missing_booking_is_resolved_across_accounts(context, monkeypatch):
     a, b = setup_combined_console(context, monkeypatch)
-    c.config.history = Mock()
+    c.history = Mock()
     c.config.prospective_cruises = []
     second = replace(a, username='second@example.invalid', access=c.APIAccess('fake', 'second', Mock()))
     c.config.accounts.append(second)
     monkeypatch.setattr(c, 'get_voyages', Mock(side_effect=[[], [b]]))
     monkeypatch.setattr(c, 'process_availability_bookings', Mock(return_value=True))
     c.main()
-    c.config.history.finish_run.assert_called_once_with('ok')
+    c.history.finish_run.assert_called_once_with('ok')
     assert not any('Configured reservations were not found' in call.args[0] for call in c.log_warn.call_args_list)
 
 
@@ -812,7 +813,7 @@ def test_state_storage_diagnostic_is_actionable_and_does_not_expose_exception(co
 
 def test_combined_failure_does_not_skip_later_accounts(context, monkeypatch):
     a, b = setup_combined_console(context, monkeypatch)
-    c.config.history = Mock()
+    c.history = Mock()
     c.config.prospective_cruises = []
     second = replace(a, username='second@example.invalid', access=c.APIAccess('fake', 'second', Mock()))
     c.config.accounts.append(second)
@@ -822,7 +823,7 @@ def test_combined_failure_does_not_skip_later_accounts(context, monkeypatch):
     with pytest.raises(c.AvailabilityUnknown):
         c.main()
     assert [call.args[0] for call in checks.call_args_list] == [a, second]
-    assert c.config.history.finish_run.call_args.args[0] == 'error'
+    assert c.history.finish_run.call_args.args[0] == 'error'
     a.access.session.close.assert_called_once()
     second.access.session.close.assert_called_once()
 

@@ -13,6 +13,7 @@ import CheckRoyalCaribbeanPrice as c
 @pytest.fixture
 def calendar(tmp_path, monkeypatch):
     monkeypatch.setattr(c, 'config', c.CruiseAppConfig())
+    monkeypatch.setattr(c, 'history', Mock())
     monkeypatch.setattr(c, 'log', Mock())
     monkeypatch.setattr(c, 'log_warn', Mock())
     monkeypatch.setattr(c, '_execute_api_request', Mock(side_effect=AssertionError('Unmocked network call')))
@@ -52,6 +53,14 @@ def run_capture(calendar, **kwargs):
 
 def events(export):
     return [e['fields'] for e in export.data['events'].values()]
+
+
+def test_calendar_deadline_uses_booking_market_before_agent_office(calendar):
+    booking = dict(calendar[2], bookingMarketCountryCode='CHS',
+                   bookingOfficeCountryCode='USA', numberOfNights=7)
+    deadline, source = c.booking_final_payment(booking)
+    assert deadline == date(2099, 9, 10)
+    assert source == 'Estimated from sailing duration and booking market'
 
 
 def test_generation_excludes_sea_days_and_ignores_placeholders(calendar):
@@ -241,7 +250,7 @@ def test_main_exports_after_prices_and_reports_calendar_failure(calendar, monkey
         settings = reservation_settings(calendar)
     c.config.calendar = settings
     c.config.accounts = [account]
-    c.config.history = Mock()
+    c.history = Mock()
     c.config.output_watch_as_json = True
     monkeypatch.setattr(c, 'login', Mock(return_value=account.access))
     monkeypatch.setattr(c, 'get_profile', Mock(return_value=('OH', '', 0)))
@@ -261,7 +270,7 @@ def test_main_exports_after_prices_and_reports_calendar_failure(calendar, monkey
     else:
         c.main()
     assert order == ['prices', 'summary', 'json', 'calendar']
-    assert c.config.history.finish_run.call_args.args[0] == ('error' if failed else 'ok')
+    assert c.history.finish_run.call_args.args[0] == ('error' if failed else 'ok')
     account.access.session.close.assert_called_once()
 
 
