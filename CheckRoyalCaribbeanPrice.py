@@ -4648,6 +4648,18 @@ def parse_booked_activities(data: dict, *, ship: str, sail_date: date,
             product = item["productSummary"]
             field = path + ".offering.dateTime (expected a local date and time)"
             offering = item["offering"]
+            # Royal includes untimed package purchases in this itinerary too.
+            # Only omit observed non-appointment types with explicitly null
+            # times and no other scheduling information. Dated package entries
+            # still belong in the calendar; malformed appointments must fail.
+            category = product.get("productTypeCategory") or {}
+            if (category.get("id") in {"pt_packages", "pt_internet"}
+                    and offering["dateTime"] is None and offering["endDateTime"] is None
+                    and offering.get("dayOfCruise") is None
+                    and not offering.get("meetingTime")
+                    and all(not (g.get("fulfillment") or {}).get(key)
+                            for g in booked for key in ("meetingDate", "meetingTime"))):
+                continue
             if not isinstance(offering["dateTime"], str) or "T" not in offering["dateTime"]:
                 raise ValueError()
             start = datetime.fromisoformat(offering["dateTime"])

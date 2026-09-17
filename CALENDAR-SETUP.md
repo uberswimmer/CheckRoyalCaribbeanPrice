@@ -160,6 +160,11 @@ separate **Scheduled Activities & Reservations** section in the console and web
 report, with sailings ordered by departure date and activities within each sailing
 ordered by date and time, with guest first names and available
 venue information. Price-notification exclusions do not exclude calendar activities.
+Royal may also return untimed package purchases in this response. Package
+(`pt_packages`) and internet (`pt_internet`) entries with explicitly null start
+and end times and no other scheduling information are omitted. Dated entries
+remain included. Missing times on appointments or unfamiliar product types still
+report a capture failure and retain previous data; no appointment time is invented.
 
 The checker uses its existing authenticated session to make a GET request to
 `/en/royal/web/commerce-api/calendar/v1/itinerary` for each selected reservation.

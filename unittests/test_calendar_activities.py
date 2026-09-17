@@ -288,6 +288,71 @@ def test_multiday_report_interval_uses_actual_day_count(activities):
     assert '10:00–10:00 (+2 days)' in str(c.log.call_args_list)
 
 
+def untimed_package(category):
+    row = item('UNTIMED_' + category, 'Example package', None, None)
+    row['productSummary']['productTypeCategory'] = {'id': category}
+    row['offering'].update(dayOfCruise=None, meetingTime=None)
+    row['guests'][0]['fulfillment'].update(meetingDate=None, meetingTime=None)
+    return row
+
+
+def test_untimed_packages_do_not_discard_booked_appointments(activities):
+    calendar, payload = activities
+    payload['payload']['itineraryItems'].extend(
+        untimed_package(category) for category in ('pt_packages', 'pt_internet'))
+    export = run_capture(calendar)
+    assert export.healthy
+    assert len(activity_events(export)) == 1
+    report = '\n'.join(call.args[0] for call in c.log.call_args_list)
+    assert 'Example show' in report and 'Example package' not in report
+    c.log_warn.assert_not_called()
+
+
+@pytest.mark.parametrize('category', ['pt_packages', 'pt_internet'])
+def test_dated_package_is_still_exported(activities, category):
+    calendar, payload = activities
+    payload['payload']['itineraryItems'][0]['productSummary']['productTypeCategory'] = {'id': category}
+    export = run_capture(calendar)
+    assert len(activity_events(export)) == 1
+
+
+def test_only_untimed_packages_is_a_successful_empty_schedule(activities):
+    calendar, payload = activities
+    previous = activity_events(run_capture(calendar))
+    payload['payload']['itineraryItems'] = [untimed_package('pt_internet')]
+    export = run_capture(calendar)
+    assert export.healthy
+    assert set(activity_events(export)) == set(previous)
+    assert all(e['fields']['STATUS'] == 'CANCELLED' for e in activity_events(export).values())
+
+
+@pytest.mark.parametrize('mutation', [
+    lambda r: r['productSummary']['productTypeCategory'].update(id='pt_show'),
+    lambda r: r['productSummary']['productTypeCategory'].update(id='pt_dining'),
+    lambda r: r['productSummary']['productTypeCategory'].update(id='pt_unknown'),
+    lambda r: r['productSummary'].pop('productTypeCategory'),
+    lambda r: r['offering'].pop('dateTime'),
+    lambda r: r['offering'].pop('endDateTime'),
+    lambda r: r['offering'].update(dateTime=''),
+    lambda r: r['offering'].update(endDateTime='2099-10-11T21:05:00'),
+    lambda r: r['offering'].update(dayOfCruise=2),
+    lambda r: r['offering'].update(meetingTime='20:15'),
+    lambda r: r['guests'][0]['fulfillment'].update(meetingDate='2099-10-11'),
+    lambda r: r['guests'][0]['fulfillment'].update(meetingTime='20:15'),
+])
+def test_missing_appointment_time_or_ambiguous_package_still_retains_previous_data(activities, mutation):
+    calendar, payload = activities
+    previous = activity_events(run_capture(calendar))
+    row = untimed_package('pt_packages')
+    mutation(row)
+    payload['payload']['itineraryItems'].append(row)
+    export = c.CalendarExport(calendar[0])
+    export.capture(calendar[1], [calendar[2]])
+    with pytest.raises(c.CalendarError):
+        export.finish()
+    assert activity_events(export) == previous
+
+
 @pytest.mark.parametrize('reservation_selection', [False, True])
 def test_report_sailings_follow_departure_dates_not_ship_or_config_order(activities, reservation_selection):
     calendar, payload = activities
