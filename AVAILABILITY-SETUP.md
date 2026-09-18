@@ -1,6 +1,6 @@
 # Royal Caribbean availability test build 0.1.0
 
-This source build adds entertainment and dining availability monitoring directly to
+This source build adds show, onboard activity, and dining availability monitoring directly to
 `CheckRoyalCaribbeanPrice.py`. It does not run or import the Browse script. It uses
 the checker's existing authentication, request helper, and Apprise notifications.
 
@@ -88,11 +88,12 @@ recreate the container (`up -d --force-recreate`).
 
 | Option | Behavior |
 | --- | --- |
-| `category: show` without `product` | Discover all entertainment products for the specified booking. Newly listed shows are picked up on subsequent runs. |
+| `category: show` without `product` | Discover show products for the specified booking. Newly listed shows are picked up on subsequent runs; other product types remain separate. |
 | `category: show` with `product` | Check that exact product ID. |
 | `category: dining` | Requires an exact product ID, for example `UT_RAILDINNER` for the captured Utopia Railway product. Do not assume codes carry across ships/sailings. |
+| `category: onboardActivities` | Discover `pt_onboardActivities` products listed in the entertainment catalog, including the captured escape rooms. Add `product` to watch one exact ID. This is not discovery of every onboard activity on the ship. |
 | `mode: release` | Default. Alert when dated offerings report inventory. Existing reservations, personal scheduling conflicts, and exhausted guest allowance do not hide a release. |
-| `mode: party` | Also require remaining allowance for every configured guest, compliance with the returned guest limit, and no reported conflict for that offering. This is not a checkout or table-size guarantee. |
+| `mode: party` | Also require remaining allowance for every configured guest, compliance with returned age/guest limits, and no reported conflict for that offering. This is not a checkout or table-size guarantee. |
 | `notifyOnReopen: false` | Default. One successfully acknowledged alert per product, watch, account and sailing. Adding a new product can trigger another alert. |
 | `notifyOnReopen: true` | Re-arm after a successful observation of unavailability, including catalog disappearance. Unknown/error responses never re-arm. |
 | `enabled: false` | Skip the watch. |
@@ -104,6 +105,25 @@ Each watch requires a stable unique `id`, a `reservation`, and a `category`.
 or sailing changes its notification identity. Changing the party resets identity only
 in party mode. The state file stores a SHA-256 context key, product ID, last known
 state, and notification acknowledgement; it does not store credentials or guest names.
+
+To add escape-room monitoring, append a separate watch under `availability.watches`:
+
+```yaml
+- id: onboard-activities
+  name: "Onboard activity reservations"
+  reservation: "YOUR_BOOKING_ID"
+  category: onboardActivities
+  mode: release
+  # Optional: limit this watch to the code from the product's Cruise Planner URL.
+  # product: "YOUR_ACTIVITY_PRODUCT_CODE"
+```
+
+Existing `show` watches keep their current scope and notification history. Show and
+onboard-activity watches for the same reservation reuse the entertainment catalog
+within each account's run, while each product uses its actual eligibility category.
+Notification links open that entertainment page. No calendar setting is required.
+Start with `dryRun: true` and compare the results with Cruise Planner before relying
+on a new product type. Other categories, including spa, are not enabled by this change.
 
 To use availability alongside price checks in one instance, add the availability
 section to an existing config with `only: false` (the default). Without that section,
@@ -164,7 +184,9 @@ previously acknowledged releases. Their times remain in the latest report.
 ## What the detector actually knows
 
 Entertainment uses GraphQL category `show` and eligibility category `pt_show`.
-Dining uses `dining` and `pt_dining`. Products are discovered through a complete,
+Onboard activities use the same `show` catalog and eligibility category
+`pt_onboardActivities`. Dining uses `dining` and `pt_dining`.
+Products are discovered through a complete,
 paginated `WebProductsByCategory` query. Offerings and guest restrictions come from:
 
 ```text
@@ -176,8 +198,8 @@ as escape-room experiences. Automatic show discovery logs and skips products wit
 an explicit different `pt_` category; these do not cause a failed check or a show
 release alert. A missing/malformed type remains unknown, and an explicitly watched
 product with a category mismatch still reports an error. Skipping a product does
-not clear its existing notification history. This watcher does not monitor escape
-room availability.
+not clear its existing notification history. A separate `onboardActivities` watch
+checks the captured escape-room type without broadening existing show watches.
 
 No cart addition, booking confirmation, cancellation, or purchase is performed.
 The watcher does not call `/cart/v1/price`: your captured conflict and no-conflict
@@ -190,6 +212,12 @@ quotes differed only in offering IDs and did not validate inventory.
   mode does not promise that all guests will sit together at a restaurant.
 - Each hard conflict is scoped to the offering ID. A guest's 7:15 PM conflict must
   not hide their 9:30 PM option.
+- `AGE_REQUIREMENT_NOT_MET` blocks party-mode availability for an affected selected
+  guest. The checker uses Royal's response without calculating ages or guessing a
+  venue's age policy. Release mode still reports inventory regardless of that restriction.
+- Onboard-activity party mode supports the captured `PER_SEAT` sales unit. Other or
+  missing units remain unknown because their stock might represent something other
+  than individual seats. Release mode reports inventory without promising party eligibility.
 - Party mode does not automatically suppress a dining watch just because the venue
   has already been booked. Railway returned remaining allowance of 9999 even for
   guests with an existing reservation. Disable the watch when no longer wanted, or

@@ -1,0 +1,116 @@
+{
+  "status": 200,
+  "error": null,
+  "warnings": null,
+  "payload": {
+    "productCode": "EXAMPLE_ESCAPE_B",
+    "categoryId": "pt_onboardActivities",
+    "salesUnit": "PER_SEAT",
+    "guestLimit": null,
+    "guests": [
+      {
+        "id": "guest-1",
+        "reservationId": "booking-1",
+        "remainingBookableQty": 1,
+        "issues": [
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-1",
+            "conflict": {
+              "offering": {
+                "id": "escape-b-session-3"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "guest-2",
+        "reservationId": "booking-1",
+        "remainingBookableQty": 1,
+        "issues": [
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-2",
+            "conflict": {
+              "offering": {
+                "id": "escape-b-session-3"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "guest-3",
+        "reservationId": "booking-1",
+        "remainingBookableQty": 1,
+        "issues": [
+          {
+            "type": "AGE_REQUIREMENT_NOT_MET",
+            "guestId": "guest-3"
+          },
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-3",
+            "conflict": {
+              "offering": {
+                "id": "escape-b-session-3"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "guest-4",
+        "reservationId": "booking-1",
+        "remainingBookableQty": 1,
+        "issues": [
+          {
+            "type": "AGE_REQUIREMENT_NOT_MET",
+            "guestId": "guest-4"
+          },
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-4",
+            "conflict": {
+              "offering": {
+                "id": "escape-b-session-3"
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "offerings": [
+      {
+        "id": "escape-b-session-1",
+        "active": false,
+        "dateTime": "2099-03-28T19:00:00",
+        "stockLevelStatus": "inStock",
+        "stockLevel": 12,
+        "issues": []
+      },
+      {
+        "id": "escape-b-session-2",
+        "active": false,
+        "dateTime": "2099-03-29T10:30:00",
+        "stockLevelStatus": "inStock",
+        "stockLevel": 6,
+        "issues": []
+      },
+      {
+        "id": "escape-b-session-3",
+        "active": false,
+        "dateTime": "2099-03-29T18:30:00",
+        "stockLevelStatus": "inStock",
+        "stockLevel": 12,
+        "issues": [
+          {
+            "type": "USER_HAS_HARD_CONFLICT",
+            "guestId": "guest-1"
+          }
+        ]
+      }
+    ]
+  }
+}
