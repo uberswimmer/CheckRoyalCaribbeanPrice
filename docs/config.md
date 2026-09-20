@@ -3,7 +3,7 @@
 ## Edit Config File
 If a config file is not found, code will prompt if you want it to automatically download a simple config file. Fill in user/password and run. Only look below after getting basic configuration working.
 
-You can also `SAMPLE-config.yaml` to `config.yaml`. Edit `config.yaml` and place it in same directory as `CheckRoyalCaribbeanPrice.py` or `CheckRoyalCaribbeanPrice.exe` or when running `CheckRoyalCaribbeanPrice.py` provide the optional argument `-c path/to/config.yaml`. The spacing/alignment is important. (eg. The `-` under accountInfo must be 3 spaces over under the 2nd c in account).  
+You can also `SAMPLE-config.yaml` to `config.yaml`. Edit `config.yaml` and place it in same directory as `CheckRoyalCaribbeanPrice.py` or `CheckRoyalCaribbeanPrice.exe` or when running `CheckRoyalCaribbeanPrice.py` provide the optional argument `-c path/to/config.yaml`. The spacing/alignment is important. (eg. The `-` under accountInfo must be 3 spaces over under the 2nd c in account).
 
 If you only want to check cruise addons (drink packages, excursions, etc) and do not want emails or check cruise prices, the config file is simple. Start with this to see if works. You can have any number of Royal and/or Celebrity accounts:
 ```yaml
@@ -22,7 +22,7 @@ accountInfo:
 logFile: "output.txt"
 ```
 
-To display current cabin prices for your **booked** cruise(s), set `displayCruisePrices` to true. 
+To display current cabin prices for your **booked** cruise(s), set `displayCruisePrices` to true.
 
 ```yaml
 accountInfo:
@@ -36,7 +36,7 @@ This will request the current price from Royal's website. The code automatically
 
 If price is lower and before the final payment date (even if you paid in full), do a mock booking on the website to confirm then call your travel agent.
 
-In some cases, the API may not contain the price of your booked cruise. This is rare and may only occur for group bookings. In this case, you must provide the price you paid and any discounts. You may also want to manually set the price if there is a change fee or you lose your deposit. For instance, if it will cost you $500 to cancel/rebook, set the `pricePaid` flag to $500 less than you actually paid. Include the following info in your config, where XXXXXX and YYYYY are your reservation ID. The price can only have a `.` or `,` for the decimal place, do not use an indicator for thousands place. Enter the price paid including taxes and subtract any OBC you received. The code will identify if new booking has OBC and display it (but not subtract it since always give in USD). If you booked a special fare, you must set the corresponding keys. You only need to set what you need, will default to false. If you booked with a refundable deposit, set `refundable = true`. If you booked with included gratuities, set `gratuities=true`. If Celebrity with All-In price, set `allInUpgrade=true`. If you booked with trip insurance, set `tripInsurance=true`. 
+In some cases, the API may not contain the price of your booked cruise. This is rare and may only occur for group bookings. In this case, you must provide the price you paid and any discounts. You may also want to manually set the price if there is a change fee or you lose your deposit. For instance, if it will cost you $500 to cancel/rebook, set the `paidPrice` value to $500 less than you actually paid. Include the following info in your config, where XXXXXX and YYYYY are your reservation ID. The price can only have a `.` or `,` for the decimal place, do not use an indicator for thousands place. Enter the price paid including taxes and subtract any OBC you received. The code will identify if new booking has OBC and display it (but not subtract it since always give in USD). If you booked a special fare, you must set the corresponding keys. You only need to set what you need, will default to false. If you booked with a refundable deposit, set `refundable = true`. If you booked with included gratuities, set `gratuities=true`. If Celebrity with All-In price, set `allInUpgrade=true`. If you booked with trip insurance, set `tripInsurance=true`.
 
 To override the automatically calculated final payment date (for example, if your travel agent requires payment on a different timeline or you have special regional terms), you can provide either `finalPaymentDaysBeforeSailing` (number of lead days) or `finalPaymentDate` (exact date in `YYYY-MM-DD` format).
 
@@ -45,13 +45,13 @@ All of the others keys are optional, if you do not set them they default to fals
 ```yaml
 accountInfo:
   - username: "user@gmail.com" # Your Royal Caribbean User Name
-    password: "pa$$word" # Your Royal Caribbean Password 
+    password: "pa$$word" # Your Royal Caribbean Password
     cruiseLine: "royal" or "celebrity" # This is optional and defaults to royal
 displayCruisePrices: true
 reservationPricePaid:
   - reservation:  XXXXXX # Required
     paidPrice: 4172.71 # Required
-  - reservation:  YYYYY 
+  - reservation:  YYYYY
     paidPrice: 3172.71
     finalPaymentDate: "2026-11-30" # Optional, override payment cutoff to a specific YYYY-MM-DD date
     allInUpgrade: false # Optional, defaults to false
