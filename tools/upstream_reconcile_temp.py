@@ -231,3 +231,10 @@ if stale:
     raise SystemExit("Stale cabin SQLite references: " + ", ".join(stale))
 
 subprocess.run(["git", "add", "UPSTREAM-BASELINE.md", "AVAILABILITY-REVIEW.md"], check=True)
+
+# Upstream docs/config.md currently carries one trailing space; keep the review
+# branch diff-check clean without changing its wording.
+config_doc = Path("docs/config.md")
+config_lines = config_doc.read_text().splitlines()
+config_doc.write_text("\n".join(line.rstrip() for line in config_lines) + "\n")
+subprocess.run(["git", "add", "docs/config.md"], check=True)
