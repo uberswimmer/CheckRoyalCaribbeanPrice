@@ -14,3 +14,13 @@ output-json-celebrity.txt
 output-json-royal.txt
 output-royal.txt
 .DS_Store
+output.txt
+output-json-watch.txt
+*.db
+*.db-wal
+*.db-shm
+build/
+dist/
+# Local cabin-watch state can contain loyalty numbers in checkout URLs.
+data/cabin-availability.json*
+data/cabin-availability.sqlite3*

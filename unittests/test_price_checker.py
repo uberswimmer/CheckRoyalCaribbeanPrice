@@ -45,6 +45,7 @@ from CheckRoyalCaribbeanPrice import (
     ShipRegistry,
     WatchItemContext,
     _booking_country_code,
+    _booking_payment_market,
     _build_checkout_url,
     _calculate_passenger_metrics,
     _execute_api_request,
@@ -226,10 +227,10 @@ def test_checkout_post_failure_is_not_reported_as_not_for_sale(mock_global_confi
     exhausted): that is NOT 'Not For Sale'. No push, no not_for_sale history
     row - a network blip used to false-alert watchers and poison back-in-stock
     queries with a permanent not_for_sale/notified=1 record."""
-    import CheckRoyalCaribbeanPrice as CRCP
 
     with patch('CheckRoyalCaribbeanPrice.check_if_room_is_available', return_value=(True, [])), \
-         patch('CheckRoyalCaribbeanPrice._execute_api_request', return_value=None):
+         patch('CheckRoyalCaribbeanPrice._execute_api_request', return_value=None), \
+         patch('CheckRoyalCaribbeanPrice.history') as mock_history:
         get_cruise_price(
             account_info=base_account_info,
             booking={"url": _WATCH_URL, "stateroomType": "SUITE"},
@@ -238,16 +239,16 @@ def test_checkout_post_failure_is_not_reported_as_not_for_sale(mock_global_confi
         )
 
     mock_global_config.notify.assert_not_called()
-    kwargs = CRCP.history.record_cabin_fare.call_args.kwargs
+    kwargs = mock_history.record_cabin_fare.call_args.kwargs
     assert kwargs["status"] == "no_price_data"
 
 
 def test_availability_fetch_failure_is_not_reported_as_not_for_sale(mock_global_config, base_account_info):
     """check_if_room_is_available returning None (its request failed) must not
     be pushed or recorded as Not For Sale either."""
-    import CheckRoyalCaribbeanPrice as CRCP
 
-    with patch('CheckRoyalCaribbeanPrice.check_if_room_is_available', return_value=(None, [])):
+    with patch('CheckRoyalCaribbeanPrice.check_if_room_is_available', return_value=(None, [])), \
+         patch('CheckRoyalCaribbeanPrice.history') as mock_history:
         get_cruise_price(
             account_info=base_account_info,
             booking={"url": _WATCH_URL, "stateroomType": "SUITE"},
@@ -256,18 +257,18 @@ def test_availability_fetch_failure_is_not_reported_as_not_for_sale(mock_global_
         )
 
     mock_global_config.notify.assert_not_called()
-    kwargs = CRCP.history.record_cabin_fare.call_args.kwargs
+    kwargs = mock_history.record_cabin_fare.call_args.kwargs
     assert kwargs["status"] == "no_price_data"
 
 
 def test_post_empty_rooms_still_reports_not_for_sale(mock_global_config, base_account_info):
     """Control: a checkout POST that SUCCEEDS with no rooms is a genuine
     sold-out - the watchlist push and the not_for_sale row are unchanged."""
-    import CheckRoyalCaribbeanPrice as CRCP
 
     empty_resp = MagicMock()
     empty_resp.json.return_value = {"rooms": []}
     with patch('CheckRoyalCaribbeanPrice.check_if_room_is_available', return_value=(True, [])), \
+         patch('CheckRoyalCaribbeanPrice.history') as mock_history, \
          patch('CheckRoyalCaribbeanPrice._execute_api_request', return_value=empty_resp):
         get_cruise_price(
             account_info=base_account_info,
@@ -278,7 +279,7 @@ def test_post_empty_rooms_still_reports_not_for_sale(mock_global_config, base_ac
 
     mock_global_config.notify.assert_called_once()
     assert "Not For Sale" in mock_global_config.notify.call_args[1]['body']
-    kwargs = CRCP.history.record_cabin_fare.call_args.kwargs
+    kwargs = mock_history.record_cabin_fare.call_args.kwargs
     assert kwargs["status"] == "not_for_sale"
 
 
@@ -922,6 +923,67 @@ def test_ledger_insurance_and_allin_flags_reach_pricing_overrides():
     params.apply_overrides(struct)
     assert params.travel_insurance is True, "tripInsurance flag lost between ledger and pricing"
     assert params.all_included is True, "allInUpgrade flag lost between ledger and pricing"
+
+
+def test_reservation_price_paid_dict_of_dicts_prices_not_crashes():
+    """reservationPricePaid entries may be dicts ({paidPrice, finalPayment...})
+    - the payment-override path reads that shape explicitly, but the paid-price
+    path did float(dict) and the TypeError killed the entire run at the first
+    booking."""
+    account_info = AccountInfo(username="test_user", password="password", cruise_line="royal")
+    account_info.access = MagicMock()
+    account_info.access.token = "fake_token"
+    account_info.access.id = "fake_id"
+
+    def mock_api_router(*args, **kwargs):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        url = args[2] if len(args) > 2 else kwargs.get("url", "")
+        if "profileBookings" in url:
+            mock_resp.json.return_value = {"payload": {"profileBookings": [{
+                "bookingId": "1234567", "passengerId": "33333333",
+                "sailDate": "20261225", "numberOfNights": 7, "shipCode": "AL",
+                "stateroomNumber": "6543", "stateroomType": "B",
+                "passengersInStateroom": [{"firstName": "Matt", "lastName": "Smith",
+                                           "stateroomCategoryCode": "4D"}]}]}}
+        else:
+            mock_resp.json.return_value = {"payload": []}
+        return mock_resp
+
+    mock_config = CruiseAppConfig()
+    mock_config.reservation_prices = {
+        "1234567": {"paidPrice": 900.0, "finalPaymentDaysBeforeSailing": 90}}
+    mock_config.display_cruise_prices = True
+
+    mock_metrics = {"passenger_names": "Matt Smith", "checkin_string": "Boarding Time 11:00",
+                    "category_code": "4D", "sub_type": "4D"}
+    with patch('CheckRoyalCaribbeanPrice.config', mock_config), \
+         patch('CheckRoyalCaribbeanPrice._execute_api_request', side_effect=mock_api_router), \
+         patch('CheckRoyalCaribbeanPrice._calculate_passenger_metrics', return_value=mock_metrics), \
+         patch('CheckRoyalCaribbeanPrice.get_dining_and_prices',
+               return_value={"dining_selection": [], "prices": []}), \
+         patch('CheckRoyalCaribbeanPrice.get_checkin_info'), \
+         patch('CheckRoyalCaribbeanPrice.get_cruise_price') as mock_price:
+        get_voyages(account_info, CruiseURLParams(), ShipRegistry())
+
+    assert mock_price.called
+    assert mock_price.call_args.kwargs["paid_price_struct"]["paid_price"] == 900.0
+
+
+def test_null_passenger_array_does_not_crash_pricing(mock_global_config, base_account_info):
+    """'passengersInStateroom': null (present-but-null) crashed get_cruise_price
+    Path B with a TypeError, killing every remaining booking and account."""
+    booking = {"bookingId": "1234567", "sailDate": "20270510", "shipCode": "WN",
+               "stateroomType": "B", "stateroomSubtype": "4D",
+               "passengersInStateroom": None}
+    with patch('CheckRoyalCaribbeanPrice.get_room_price_via_API',
+               return_value={"room_available": False}):
+        get_cruise_price(
+            account_info=base_account_info,
+            booking=booking,
+            ship_dictionary=ShipRegistry(),
+            automatic_URL=True,
+        )   # reaching here without TypeError is the assertion
 
 
 def test_get_orders_complete_execution_path():
@@ -1927,6 +1989,56 @@ def test_get_new_order_price_writes_json_watch_record(tmp_path):
 # ============================================================================
 # ITEM 13 TESTS: EXTRA METRIC CALCULATION Scope Isolation & String Resiliency
 # ============================================================================
+def test_metrics_counts_birthdateless_guest_as_adult():
+    """A guest with no birthdate on record (TA-entered bookings) must price as
+    an adult: above_age_on_sail_date() returns False for a missing date, which
+    silently classified them as children (wrong fare basis)."""
+    booking = {"stateroomType": "B", "stateroomSubtype": "D8"}
+    guests = [
+        {"firstName": "Matt", "birthdate": "19800101", "stateroomCategoryCode": "4D"},
+        {"firstName": "Pat", "stateroomCategoryCode": "4D"},   # no birthdate
+    ]
+    metrics = _calculate_passenger_metrics(
+        guests=guests, sail_date="20270510", booking=booking, brand_code="R")
+    assert metrics["num_adults"] == 2
+    assert metrics["num_children"] == 0
+
+
+def test_path_b_birthdateless_guest_and_top_level_category_reach_pricing(
+        mock_global_config, base_account_info):
+    """Path B rebuilt its own passenger/category metrics and disagreed with
+    _calculate_passenger_metrics twice over: a guest with no birthdate was
+    counted as NOBODY (a 2-adult cabin priced as 1 adult -> false 'Rebook!'),
+    and a category present only at booking level (where get_voyages also
+    patches its resolved code) never reached the pricing request at all
+    (-> 'Unassigned/GTY Not For Sale')."""
+    booking = {
+        "bookingId": "1234567",
+        "sailDate": "20270510",
+        "shipCode": "WN",
+        "packageCode": "WN07X123",
+        "stateroomType": "B",
+        "stateroomSubtype": "4D",
+        "stateroomCategoryCode": "4B",            # booking level only
+        "passengersInStateroom": [
+            {"firstName": "Matt", "birthdate": "19800101"},
+            {"firstName": "Pat"},                  # no birthdate
+        ],
+    }
+    with patch('CheckRoyalCaribbeanPrice.get_room_price_via_API',
+               return_value={"room_available": False}) as mock_price:
+        get_cruise_price(
+            account_info=base_account_info,
+            booking=booking,
+            ship_dictionary=ShipRegistry(),
+            automatic_URL=True,
+        )
+
+    url_params = mock_price.call_args[0][0]
+    assert int(url_params.number_of_adults) == 2, "birthdate-less guest dropped from the party"
+    assert url_params.stateroom_category_code == "4B", "booking-level category never reached pricing"
+
+
 def test_calculate_passenger_metrics_gty_scope_isolation():
     """
     Verify that guess logic for one guest's GTY category code does not
@@ -2027,6 +2139,30 @@ def test_load_config_objects_handles_none_values_safely(tmp_path):
         assert isinstance(config, CruiseAppConfig)
         assert config.minimum_saving_alert is None
         assert config.output_json_watch_file == "output-json-watch.txt"
+
+
+def test_load_config_objects_tolerates_null_sections(tmp_path):
+    """A user who comments out every entry of a section leaves 'watchList:'
+    with a null value - .get(key, []) returns that None and iteration crashed
+    config load with a bare TypeError before logging was even set up."""
+    yaml_content = """
+    accountInfo:
+      - username: "test_user"
+        password: "password123"
+        apprise:
+    watchList:
+    cruises:
+    apprise:
+    """
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(yaml_content)
+
+    with patch('CheckRoyalCaribbeanPrice.setup_hybrid_logging'):
+        config = load_config_objects(str(config_file))
+    assert isinstance(config, CruiseAppConfig)
+    assert config.watch_list == []
+    assert config.prospective_cruises == []
+    assert config.apobj is None
 
 
 def test_load_config_objects_expands_environment_variables(tmp_path, monkeypatch):
@@ -2538,6 +2674,34 @@ def _summary_row(**overrides):
     }
     row.update(overrides)
     return row
+
+
+def test_summary_table_never_drops_rows_on_unexpected_balance_value(monkeypatch):
+    """balance_due can arrive as a raw API value (1, 'true') rather than the
+    four expected shapes. The color list skipped its append for such rows, so
+    zip() silently dropped the LAST table row and shifted colors onto the
+    wrong rows. Every row must render regardless of the value."""
+    captured = []
+    mock_cfg = MagicMock()
+    mock_cfg.date_display_format = "%Y-%m-%d"
+    mock_cfg.format_date = lambda d: str(d)
+    script_module = sys.modules[CheckinPaymentTracker.__module__]
+    monkeypatch.setattr(script_module, "config", mock_cfg)
+    monkeypatch.setattr(script_module, "log", lambda msg: captured.append(str(msg)))
+
+    tracker = CheckinPaymentTracker()
+    tracker.rows.extend([
+        _summary_row(name="Wonder of the Seas (7123)", balance_due=1),   # raw int
+        _summary_row(name="Icon of the Seas (11418)", sail_date="20271018",
+                     dedupe_key="7654321|20271018", balance_due=True),
+    ])
+    tracker.print_table()
+
+    out = "\n".join(captured)
+    assert "Wonder of the Seas (7123)" in out
+    assert "Icon of the Seas (11418)" in out, "row dropped by pay_colors desync"
+    # and the recognized row keeps its balance-due annotation
+    assert "(balance due)" in out
 
 
 def test_checkin_payment_summary_table_renders_and_flags(monkeypatch):
@@ -3316,7 +3480,6 @@ class TestFinalPaymentDate:
         office. A code MARKET_RULES doesn't know must fall through to the
         next candidate - resolve_lead_time silently defaults unknown codes
         to the US windows, which would turn a 30-day market into 90 days."""
-        from CheckRoyalCaribbeanPrice import _booking_payment_market
 
         # CHS is now a known alias, so the market wins directly
         assert _booking_payment_market(
@@ -3336,7 +3499,6 @@ class TestFinalPaymentDate:
         """The real shape from #99: CHS market / DEU office, 7 nights,
         sails 2026-12-27 -> final payment 30 days out, 2026-11-27 (via the
         CHS alias; the DEU fallback would agree - both are 30-day markets)."""
-        from CheckRoyalCaribbeanPrice import _booking_payment_market
 
         resolved = get_final_payment_date(
             number_of_nights=7,
@@ -3350,12 +3512,11 @@ class TestFinalPaymentDate:
     @patch("CheckRoyalCaribbeanPrice.get_room_price_via_API")
     @patch("CheckRoyalCaribbeanPrice.notifier_for")
     def test_best_price_past_final_payment_records_distinct_decision(
-        self, mock_notifier, mock_api_pricing
+        self, mock_notifier, mock_api_pricing, mock_global_history
     ):
         """'past_final_payment' historically meant a LOWER price you are locked
         out of; a best-price booking past final payment (#119 display note)
         must record a distinct value so history queries can tell them apart."""
-        import CheckRoyalCaribbeanPrice as CRCP
 
         mock_notifier.return_value = None
         mock_api_pricing.return_value = {
@@ -3363,6 +3524,7 @@ class TestFinalPaymentDate:
             "sailing_nights": 7,
             "base_fare": {"fare": 1100.0, "gratuities": 0.0, "insurance": 0.0, "obc": 0.0},
         }
+
         mock_account = MagicMock()
         mock_account.access.session = MagicMock()
         registry = MagicMock()
@@ -3375,7 +3537,7 @@ class TestFinalPaymentDate:
         }
         # the price-history sink is the module-global `history` (PR #115
         # refactor), patched per-test by the autouse mock_global_history fixture
-        CRCP.history.record_cabin_fare.reset_mock()
+        mock_global_history.record_cabin_fare.reset_mock()
 
         get_cruise_price(
             account_info=mock_account,
@@ -3385,7 +3547,7 @@ class TestFinalPaymentDate:
                                "finalPaymentDate": "2020-01-01"},
         )
 
-        kwargs = CRCP.history.record_cabin_fare.call_args.kwargs
+        kwargs = mock_global_history.record_cabin_fare.call_args.kwargs
         assert kwargs["status"] == "priced"
         assert kwargs["rebook_decision"] == "best_price_past_final_payment"
 
@@ -3985,6 +4147,7 @@ def test_main_distinguishes_login_failure_from_profile_fetch_failure():
 
     # get_profile() was reached only for the account that actually logged in.
     mock_get_profile.assert_called_once_with(profile_bad_account)
+    good_access.session.close.assert_called_once()
     # Neither account made it to get_voyages() - both were skipped.
     mock_get_voyages.assert_not_called()
 
@@ -4036,6 +4199,63 @@ def test_main_distinguishes_login_failure_from_profile_fetch_failure():
     assert "badlogin@example.com (login)" in finish_summary
     assert "badprofile@example.com (profile)" in finish_summary
     assert exc_info.value.code == EXIT_PARTIAL_FAILURE
+
+
+def test_profile_failure_closes_session_before_error_notification():
+    account = AccountInfo(username="profile@example.invalid", password="fake")
+    account.apobj = MagicMock()
+    account.apobj.__len__.return_value = 1
+    access = APIAccess(token="fake-token", id="fake-account", session=MagicMock())
+    cfg = _make_multi_account_config([account])
+    cfg.notify_on_error = True
+
+    def failed_notification(**kwargs):
+        access.session.close.assert_called_once()
+        raise RuntimeError("notification failed")
+
+    account.apobj.notify.side_effect = failed_notification
+    with patch("CheckRoyalCaribbeanPrice.config", cfg), \
+         patch("CheckRoyalCaribbeanPrice.history"), \
+         patch("CheckRoyalCaribbeanPrice.log"), \
+         patch("CheckRoyalCaribbeanPrice.get_ship_dictionary_web"), \
+         patch("CheckRoyalCaribbeanPrice.login", return_value=access), \
+         patch("CheckRoyalCaribbeanPrice.get_profile", side_effect=RuntimeError("profile failed")), \
+         patch("CheckRoyalCaribbeanPrice.get_voyages") as voyages:
+        with pytest.raises(RuntimeError, match="notification failed"):
+            main()
+    access.session.close.assert_called_once()
+    voyages.assert_not_called()
+
+
+def test_profile_cleanup_failure_preserves_skip_and_continue():
+    failed = AccountInfo(username="profile@example.invalid", password="fake")
+    healthy = AccountInfo(username="healthy@example.invalid", password="fake")
+    failed_access = APIAccess(token="fake", id="fake", session=MagicMock())
+    healthy_access = APIAccess(token="fake", id="fake", session=MagicMock())
+    failed_access.session.close.side_effect = RuntimeError("cleanup failed")
+    cfg = _make_multi_account_config([failed, healthy])
+    cfg.notify_on_error = True
+    failed.apobj = MagicMock()
+    failed.apobj.__len__.return_value = 1
+    with patch("CheckRoyalCaribbeanPrice.config", cfg), \
+         patch("CheckRoyalCaribbeanPrice.history") as run_history, \
+         patch("CheckRoyalCaribbeanPrice.log") as logged, \
+         patch("CheckRoyalCaribbeanPrice.get_ship_dictionary_web"), \
+         patch("CheckRoyalCaribbeanPrice.login", side_effect=[failed_access, healthy_access]), \
+         patch("CheckRoyalCaribbeanPrice.get_profile", side_effect=[RuntimeError("profile failed"), ("FL", "TEST", 0)]), \
+         patch("CheckRoyalCaribbeanPrice.get_voyages") as voyages, \
+         patch("CheckRoyalCaribbeanPrice.time.sleep"):
+        with pytest.raises(SystemExit) as exc_info:
+            main()
+    assert exc_info.value.code == EXIT_PARTIAL_FAILURE
+    assert voyages.call_count == 1
+    assert voyages.call_args.args[0] is healthy
+    failed_access.session.close.assert_called_once()
+    healthy_access.session.close.assert_called_once()
+    assert failed.apobj.notify.call_args.kwargs['title'] == 'Cruise Price Account Profile Fetch Failed'
+    assert any('Session cleanup failed' in str(call) for call in logged.call_args_list)
+    assert run_history.finish_run.call_args.args[0] == 'partial_failure'
+    assert '(profile)' in run_history.finish_run.call_args.args[1]
 
 
 def test_main_all_accounts_succeed_exits_and_records_ok_unchanged():
