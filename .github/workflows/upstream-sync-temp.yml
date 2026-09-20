@@ -15,7 +15,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Probe upstream merge
+      - name: Inspect upstream conflicts
         shell: bash
         run: |
           set -u
@@ -25,15 +25,9 @@ jobs:
           git fetch upstream main
           set +e
           git merge --no-commit --no-ff upstream/main
-          rc=$?
           set -e
-          echo "MERGE_RC=$rc"
-          echo "CONFLICTS_BEGIN"
-          git diff --name-only --diff-filter=U | sort
-          echo "CONFLICTS_END"
-          echo "STATUS_BEGIN"
-          git status --short
-          echo "STATUS_END"
-          if git rev-parse -q --verify MERGE_HEAD >/dev/null; then
-            git merge --abort
-          fi
+          for f in CheckRoyalCaribbeanPrice.py docs/watchlist-addons.md docs/watchlist-cruise-url.md unittests/test_cabin_availability.py unittests/test_price_alert_exclusions.py; do
+            echo "===== DIFF $f ====="
+            git diff --cc -- "$f" || true
+          done
+          git merge --abort
