@@ -66,7 +66,8 @@ jobs:
           docker rm -f checker-control-sync report-control-sync
           docker network rm run-control-sync
           rm -f config.availability.yaml
-          rm -rf web-smoke web-control-sync
+          rm -rf web-smoke
+          sudo rm -rf web-control-sync
 
       - name: Commit reconciled merge
         shell: bash
