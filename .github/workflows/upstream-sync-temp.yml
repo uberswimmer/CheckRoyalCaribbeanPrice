@@ -1,0 +1,39 @@
+name: Temporary upstream merge probe
+
+on:
+  push:
+    branches:
+      - automation/upstream-2026-09-20
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Probe upstream merge
+        shell: bash
+        run: |
+          set -u
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add upstream https://github.com/jdeath/CheckRoyalCaribbeanPrice.git
+          git fetch upstream main
+          set +e
+          git merge --no-commit --no-ff upstream/main
+          rc=$?
+          set -e
+          echo "MERGE_RC=$rc"
+          echo "CONFLICTS_BEGIN"
+          git diff --name-only --diff-filter=U | sort
+          echo "CONFLICTS_END"
+          echo "STATUS_BEGIN"
+          git status --short
+          echo "STATUS_END"
+          if git rev-parse -q --verify MERGE_HEAD >/dev/null; then
+            git merge --abort
+          fi
