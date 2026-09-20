@@ -59,6 +59,88 @@ if count == 0:
 path.write_text("".join(out))
 print(f"Resolved {count} checker conflict blocks in favor of upstream")
 
+# Reconcile fork-only orchestration around upstream #127-129 behavior.
+source = path.read_text()
+
+old_cleanup = """                # A profile failure happens after login has created a live
+                # session. This account will never enter the normal voyage
+                # cleanup path or the deferred availability cleanup list.
+                if account_info.access is not None:
+                    account_info.access.session.close()
+                continue
+"""
+new_cleanup = """                continue
+"""
+if source.count(old_cleanup) != 1:
+    raise SystemExit(f"Expected exactly one obsolete post-notification cleanup block, found {source.count(old_cleanup)}")
+source = source.replace(old_cleanup, new_cleanup, 1)
+
+old_price_failure = """    if not rooms:
+        log("Room price request failed" if results.get('price_check_failed')
+            else "Room Price Not Found")
+        # A pricing failure or absent fare does not erase inventory that the
+        # room-selection endpoint already confirmed. Price mode records an
+        # unknown/no-data result; availability mode can still report the
+        # confirmed cabin with "Current price unavailable."
+        if not results.get('price_check_failed'):
+            results['room_available'] = False
+        results['available_rooms'] = available_rooms
+        return results
+"""
+new_price_failure = """    if not rooms:
+        log("Room price request failed" if results.get('price_check_failed')
+            else "Room Price Not Found")
+        # Follow upstream #129: checkout price state is separate from the
+        # room-selection inventory evidence stored in inventory_available.
+        # Availability mode remaps that evidence before evaluating the alert.
+        results['room_available'] = False
+        results['available_rooms'] = available_rooms
+        return results
+"""
+if source.count(old_price_failure) != 1:
+    raise SystemExit(f"Expected exactly one legacy cabin price-failure block, found {source.count(old_price_failure)}")
+source = source.replace(old_price_failure, new_price_failure, 1)
+
+final_anchor = """        # Write the watchlist price results to JSON for external consumption
+        if config.output_watch_as_json:
+            write_watch_price_json(collected_watch_rows, config.output_json_watch_file)
+
+        failure_summaries = []
+"""
+final_replacement = """        # Write the watchlist price results to JSON for external consumption
+        if config.output_watch_as_json:
+            write_watch_price_json(collected_watch_rows, config.output_json_watch_file)
+
+        # Fork-only calendar/reservation-availability outputs must complete
+        # before a deferred reservation-availability failure is surfaced.
+        if calendar_export is not None:
+            calendar_export.finish()
+
+        if availability_error is not None:
+            raise availability_error
+
+        failure_summaries = []
+"""
+if source.count(final_anchor) != 1:
+    raise SystemExit(f"Expected exactly one end-of-run finalization anchor, found {source.count(final_anchor)}")
+source = source.replace(final_anchor, final_replacement, 1)
+
+path.write_text(source)
+
+# Verify upstream profile cleanup and fork deferred availability finalization both exist.
+source = path.read_text()
+integration_required = [
+    'Session cleanup failed after profile lookup failure; continuing.',
+    'failed_watches: List[int] = []',
+    'availability_error = None',
+    'finish_availability_run(config.availability, availability_found, availability_healthy)',
+    'calendar_export.finish()',
+    'if availability_error is not None:',
+]
+missing_integration = [needle for needle in integration_required if needle not in source]
+if missing_integration:
+    raise SystemExit("Missing integration behavior: " + ", ".join(missing_integration))
+
 subprocess.run(
     [
         "git", "add",
