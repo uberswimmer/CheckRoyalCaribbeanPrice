@@ -10,7 +10,6 @@ permissions:
 
 jobs:
   reconcile:
-    if: ${{ contains(github.event.head_commit.message, '[upstream-sync-complete]') == false }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -20,7 +19,7 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Merge upstream and resolve adopted features
+      - name: Merge upstream and reconcile adopted features
         shell: bash
         run: |
           set -euo pipefail
@@ -29,136 +28,12 @@ jobs:
           git remote add upstream https://github.com/jdeath/CheckRoyalCaribbeanPrice.git
           git fetch upstream main
           test "$(git rev-parse upstream/main)" = "ac7e426931c12ef21ccd2badb223b04046c0a860"
-
           set +e
           git merge --no-commit --no-ff upstream/main
           merge_rc=$?
           set -e
-
-          conflicts="$(git diff --name-only --diff-filter=U | sort)"
-          expected=$'CheckRoyalCaribbeanPrice.py\ndocs/watchlist-addons.md\ndocs/watchlist-cruise-url.md\nunittests/test_cabin_availability.py\nunittests/test_price_alert_exclusions.py'
-          if [ "$merge_rc" -ne 0 ] && [ "$conflicts" != "$expected" ]; then
-            echo "Unexpected conflict set:"
-            printf '%s\n' "$conflicts"
-            exit 1
-          fi
-
-          # For the four documentation/test overlaps, upstream is now authoritative.
-          git checkout --theirs --             docs/watchlist-addons.md             docs/watchlist-cruise-url.md             unittests/test_cabin_availability.py             unittests/test_price_alert_exclusions.py
-
-          # CheckRoyalCaribbeanPrice.py also contains fork-only entertainment/dining,
-          # calendar and reporting code. Keep the auto-merged file, but choose upstream
-          # for each actual conflict hunk (#127-129 and their follow-up hardening).
-          python - <<'PY'
-          from pathlib import Path
-
-          path = Path("CheckRoyalCaribbeanPrice.py")
-          lines = path.read_text().splitlines(keepends=True)
-          out = []
-          i = 0
-          conflicts = 0
-          while i < len(lines):
-              if not lines[i].startswith("<<<<<<< "):
-                  out.append(lines[i])
-                  i += 1
-                  continue
-              conflicts += 1
-              i += 1
-              while i < len(lines) and not lines[i].startswith("======="):
-                  i += 1
-              if i >= len(lines):
-                  raise SystemExit("unterminated conflict before separator")
-              i += 1
-              theirs = []
-              while i < len(lines) and not lines[i].startswith(">>>>>>> "):
-                  theirs.append(lines[i])
-                  i += 1
-              if i >= len(lines):
-                  raise SystemExit("unterminated conflict after separator")
-              out.extend(theirs)
-              i += 1
-          if conflicts == 0:
-              raise SystemExit("expected CheckRoyalCaribbeanPrice.py conflicts")
-          path.write_text("".join(out))
-          print(f"Resolved {conflicts} checker conflict blocks in favor of upstream")
-          PY
-
-          git add CheckRoyalCaribbeanPrice.py             docs/watchlist-addons.md docs/watchlist-cruise-url.md             unittests/test_cabin_availability.py unittests/test_price_alert_exclusions.py
-
-          if [ -n "$(git diff --name-only --diff-filter=U)" ]; then
-            git diff --name-only --diff-filter=U
-            exit 1
-          fi
-
-          python - <<'PY'
-          from pathlib import Path
-
-          baseline_path = Path("UPSTREAM-BASELINE.md")
-          baseline = baseline_path.read_text()
-          baseline = baseline.replace(
-              "Baseline commit: `c3863a148118b386a54c837bf5fcedd8b3027ef1`",
-              "Baseline commit: `ac7e426931c12ef21ccd2badb223b04046c0a860`",
-          )
-          baseline = baseline.replace(
-              "Commit subject: Merge pull request #122 from tecmage/fix-final-payment-market",
-              "Commit subject: Merge pull request #129 from uberswimmer/upstream/cabin-transition-alerts",
-          )
-          baseline_path.write_text(baseline)
-
-          review_path = Path("AVAILABILITY-REVIEW.md")
-          review = review_path.read_text()
-          section = """
-## Upstream adoption sync through PR #129
-
-Upstream `main` through `ac7e426931c12ef21ccd2badb223b04046c0a860` is
-reconciled into the fork. Upstream is now authoritative for the functionality
-accepted in PRs #127-129: authenticated-session cleanup after profile failure,
-reservation-scoped `ignoredPriceAlerts`, and prospective cabin availability
-transition alerts.
-
-For cabin alerts, the fork intentionally adopts upstream's editable JSON state
-implementation and readable search keys. The prior fork used SQLite for
-`cabinAvailabilityStateFile`; that file is not migrated. A fresh JSON state may
-therefore send one initial alert for a cabin that is already available, which is an
-accepted transition behavior. Price-history SQLite and reservation-availability
-state remain separate and unchanged.
-
-The sync also includes upstream Browse/PhonePriceCheck/userscript hardening,
-documentation and gitignore privacy fixes, release-build ordering fixes, and
-test-suite robustness changes. Fork-only entertainment/dining availability,
-scheduled checks, calendar/report exports, web run controls, and the dedicated
-GHCR publishing workflow remain in place. The onboard-activity feature PR stays
-separate for rebase and retest after this sync.
-"""
-          if "## Upstream adoption sync through PR #129" not in review:
-              review += section
-          review_path.write_text(review)
-          PY
-          git add UPSTREAM-BASELINE.md AVAILABILITY-REVIEW.md
-
-          # The upstream JSON implementation is intentional; no stale cabin SQLite
-          # path should remain in active source/setup documentation.
-          if grep -R "cabin-availability.sqlite3" -n               CheckRoyalCaribbeanPrice.py docs README.md SAMPLE-config.yaml               AVAILABILITY-SETUP.md GITHUB-DEPLOYMENT.md LOCAL-WEB-SETUP.md 2>/dev/null; then
-            echo "Stale cabin SQLite documentation remains"
-            exit 1
-          fi
-
-          # Fork-only capabilities must survive the overlap resolution.
-          python - <<'PY'
-          source = open("CheckRoyalCaribbeanPrice.py", encoding="utf-8").read()
-          required = [
-              "class AvailabilityWatch",
-              "def process_availability_bookings",
-              "def parse_calendar_config",
-              "def run_availability_only",
-              "cabin_state_lock",
-              "ignoredPriceAlerts",
-              "data/cabin-availability.json",
-          ]
-          missing = [needle for needle in required if needle not in source]
-          if missing:
-              raise SystemExit("Missing reconciled capabilities: " + ", ".join(missing))
-          PY
+          test "$merge_rc" -eq 1
+          python tools/upstream_reconcile_temp.py
 
       - name: Full repository validation
         shell: bash
@@ -168,59 +43,36 @@ separate for rebase and retest after this sync.
           python -m pytest unittests/ -q
           python -m py_compile CheckRoyalCaribbeanPrice.py BrowseRoyalCaribbeanPrice.py PhonePriceCheck.py
           bash -n entrypoint.sh
-          python - <<'PY'
-          import yaml
-          for path in [
-              'SAMPLE-config.yaml',
-              'SAMPLE-availability-config.yaml',
-              'compose.availability.yaml',
-              'compose.local-web.yaml',
-              '.github/workflows/availability.yml',
-          ]:
-              yaml.safe_load(open(path))
-          PY
+          python -c "import yaml; [yaml.safe_load(open(p)) for p in ['SAMPLE-config.yaml','SAMPLE-availability-config.yaml','compose.availability.yaml','compose.local-web.yaml','.github/workflows/availability.yml']]"
           git diff --cached --check
           docker build -t royal-availability:sync .
-
-          python - <<'PY'
-          import yaml
-          config = yaml.safe_load(open('SAMPLE-availability-config.yaml'))
-          config.pop('apprise', None)
-          config['reportDirectory'] = '/app/data/public'
-          config['calendar'] = {'outputDirectory': '/app/data/calendar', 'reservations': ['1000001']}
-          with open('config.availability.yaml', 'w') as f:
-              yaml.safe_dump(config, f)
-          PY
+          python -c "import yaml; c=yaml.safe_load(open('SAMPLE-availability-config.yaml')); c.pop('apprise',None); c['reportDirectory']='/app/data/public'; c['calendar']={'outputDirectory':'/app/data/calendar','reservations':['1000001']}; yaml.safe_dump(c,open('config.availability.yaml','w'))"
           docker compose -f compose.availability.yaml config --quiet
-          docker run --rm -v "$PWD/config.availability.yaml:/app/config.yaml:ro"             royal-availability:sync check --validate-config
-
+          docker run --rm -v "$PWD/config.availability.yaml:/app/config.yaml:ro" royal-availability:sync check --validate-config
           docker build -f Dockerfile.web -t royal-reports:sync .
           mkdir -p "$PWD/web-smoke"
           chmod 755 "$PWD/web-smoke"
-          docker run -d --name report-sync --read-only --cap-drop ALL             --security-opt no-new-privileges:true             --tmpfs /tmp:rw,noexec,nosuid,size=16m,mode=1777             -p 127.0.0.1:8088:8080 -v "$PWD/web-smoke:/srv/exports:ro" royal-reports:sync
+          docker run -d --name report-sync --read-only --cap-drop ALL --security-opt no-new-privileges:true --tmpfs /tmp:rw,noexec,nosuid,size=16m,mode=1777 -p 127.0.0.1:8088:8080 -v "$PWD/web-smoke:/srv/exports:ro" royal-reports:sync
           python unittests/web_server_smoke.py http://127.0.0.1:8088 "$PWD/web-smoke"
           docker rm -f report-sync
-          CHECKER_IMAGE=royal-availability:sync REPORT_IMAGE=royal-reports:sync LAN_IP=127.0.0.1             docker compose -f compose.local-web.yaml config --quiet
-
+          CHECKER_IMAGE=royal-availability:sync REPORT_IMAGE=royal-reports:sync LAN_IP=127.0.0.1 docker compose -f compose.local-web.yaml config --quiet
           python -m pip install playwright
           docker network create run-control-sync
           mkdir -p "$PWD/web-control-sync/public"
           chmod 755 "$PWD/web-control-sync" "$PWD/web-control-sync/public"
-          docker run -d --name checker-control-sync --network run-control-sync             --network-alias cruise-availability-checker             -e CHECKER_WEB_ENABLED=true -e CHECKER_WEB_ORIGIN=http://127.0.0.1:8088             -e 'CRON_SCHEDULE=0 0 31 2 *'             -v "$PWD/web-control-sync:/app/data"             -v "$PWD/unittests/control_checker_fixture.py:/app/CheckRoyalCaribbeanPrice.py:ro"             royal-availability:sync
-          docker run -d --name report-control-sync --network run-control-sync             --read-only --cap-drop ALL --security-opt no-new-privileges:true             --tmpfs /tmp:rw,noexec,nosuid,size=16m,mode=1777             -p 127.0.0.1:8088:8080 -v "$PWD/web-control-sync/public:/srv/exports:ro" royal-reports:sync
+          docker run -d --name checker-control-sync --network run-control-sync --network-alias cruise-availability-checker -e CHECKER_WEB_ENABLED=true -e CHECKER_WEB_ORIGIN=http://127.0.0.1:8088 -e 'CRON_SCHEDULE=0 0 31 2 *' -v "$PWD/web-control-sync:/app/data" -v "$PWD/unittests/control_checker_fixture.py:/app/CheckRoyalCaribbeanPrice.py:ro" royal-availability:sync
+          docker run -d --name report-control-sync --network run-control-sync --read-only --cap-drop ALL --security-opt no-new-privileges:true --tmpfs /tmp:rw,noexec,nosuid,size=16m,mode=1777 -p 127.0.0.1:8088:8080 -v "$PWD/web-control-sync/public:/srv/exports:ro" royal-reports:sync
           python unittests/run_control_smoke.py http://127.0.0.1:8088 "$PWD/web-control-sync" checker-control-sync
           docker rm -f checker-control-sync report-control-sync
           docker network rm run-control-sync
-
           rm -f config.availability.yaml
           rm -rf web-smoke web-control-sync
 
-      - name: Commit resolved merge
+      - name: Commit reconciled merge
         shell: bash
         run: |
           set -euo pipefail
-          git rm .github/workflows/upstream-sync-temp.yml
-          git add UPSTREAM-BASELINE.md AVAILABILITY-REVIEW.md
+          git rm .github/workflows/upstream-sync-temp.yml tools/upstream_reconcile_temp.py
           git diff --cached --check
           git status --short
           git commit -m "Merge upstream through ac7e426 [upstream-sync-complete]"
