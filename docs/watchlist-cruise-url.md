@@ -15,7 +15,7 @@
 1. You can add multiple cruiseURL/paidPrice to track multiple cruises or rooms on a cruise
 1. If the code says the price is cheaper, do a mock booking to see if cabin is still available. You need to do this from a new search on the Royal Caribbean / Celebrity website. Do not just put the cruiseURL in your browser.
 1. If it is lower than you paid for and before final payment date call your Travel Agent or Royal Caribbean (if you booked direct) and they should (reports of pushback lately) reduce the price. Be careful, you will lose the onboard credit you got in your first booking, if the new booking does not still offer it! The code will print the OBC offered for the new cruise, but will not subtract it because OBC only given in USD
-1. Update the pricePaid field to the new price. Remove the `$` ,`£` and any `,` (or `.` if non-USD currency for thousands designator)
+1. Update the paidPrice field to the new price. Remove the `$` ,`£` and any `,` (or `.` if non-USD currency for thousands designator)
 1. If there are no more rooms of the same class available to book, you will not be able to reprice. You will need to wait until a room opens up. The code will print the cheapest interior, outside view, balcony or suite available. These are probably GTY for each class and not the exact type of room you wanted. This is all the public cruise price API returns.
 1. If you only want to check the cruise prices with URL you provide, you do not need to have your `accountInfo` and/or `apprise` in your [config file](config.md), as they are not necessary.
 1. Should always give price in your current currency (except for OBC which is only in USD). If your currency is not supported, create an issue
@@ -31,7 +31,7 @@ cruises:
   - cruiseURL: "YOUR_COMPLETE_CHECKOUT_URL"
     notificationMode: availability
 
-cabinAvailabilityStateFile: /app/data/cabin-availability.sqlite3
+cabinAvailabilityStateFile: /app/data/cabin-availability.json
 ```
 
 This mode does not require `paidPrice` and does not apply `minimumSavingAlert`.
@@ -40,16 +40,74 @@ and a booking link. It also alerts if the first successful check finds availabil
 An unavailable result appears in the console/report without sending a notification.
 A subsequent confirmed closure rearms the alert for the next reopening. It tracks
 subtype inventory, not a particular cabin number; confirm the booking on Royal's site.
+If the inventory row describes a different lead-in category, checkout must return
+a fare for the requested category before an alert can be sent. Missing or invalid
+counts are also uncertain until checkout confirms a fare. Ordinary price checks
+continue to attempt checkout for matching subtypes regardless of lead-in stock.
 Guarantee categories require a returned fare because the inventory endpoint does not
 identify them individually.
 
 State persists across scheduled runs and container restarts. Mount `/app/data` as a
 writable persistent volume in Docker. Outside Docker the default state path is
-`data/cabin-availability.sqlite3`, relative to the working directory. The database
-holds the latest state per search, not a report history. Changing search criteria
-creates a new watch state; deleting the file resets all cabin availability watches.
+`data/cabin-availability.json`, relative to the working directory. This separate
+JSON file holds only the latest state per search, not a report history. The YAML
+configuration is never rewritten. Changing search criteria creates a new watch
+state. Each entry has this shape (the actual key is the normalized search criteria
+serialized as a JSON string, including overrides, so different searches using one
+URL stay separate):
+
+```json
+{
+  "SEARCH_KEY": {
+    "url": "YOUR_COMPLETE_CHECKOUT_URL",
+    "available": true,
+    "notified": true
+  }
+}
+```
+
+To test or reset a watch, stop checks first and locate its `url` in the state file.
+Set `notified` to `false` to allow another alert on the next confirmed available
+result, or delete that entry to reset it. Delete the file (or replace its contents
+with `{}`) to reset all watches. Keep Boolean values as `true`/`false`, not strings.
+`available` records the last confirmed result; `notified` records successful
+delivery for the current opening. An unavailable watch must have `notified: false`.
+Protect this file like your configuration: checkout URLs and search keys may
+contain loyalty numbers. Do not commit or publish it.
+
+Earlier JSON revisions of this PR used hashed search keys. Those entries are not
+automatically migrated to the readable keys, so each available watch may send one
+new initial alert after upgrading. While checks are stopped, old hashed entries
+can be removed; subsequent runs use the readable keys.
+
+Writes replace the file atomically, and a sibling `.lock` file prevents overlapping
+processes from reading/notifying/updating the same state concurrently. Leave that
+lock file in place; its existence does not mean a check is running. The operating
+system releases its lock if the process exits. A busy lock skips the affected watch
+with a partial-failure status so it can retry on the next run. Use a local filesystem
+with working file locks and mount the whole data directory, not just the JSON file.
+Malformed or unreadable existing state is reported, never silently reset. A crash
+after notification delivery but before saving can still cause a repeated alert.
+
+If testing an earlier revision of this PR that used SQLite, change any explicit
+`cabinAvailabilityStateFile` to a new `.json` path. The old database is left untouched
+and is not automatically imported; the fresh state can send one initial alert for
+each available watch. Do not simply rename the SQLite database to `.json`. This
+change does not affect the existing optional SQLite price-history feature.
+
 Configure Apprise to deliver alerts. Failed deliveries remain pending for retry;
 failed or unrecognized API responses retain the previous state.
+Without Apprise, availability is reported in the console without treating it as
+a delivery failure or marking an alert delivered. Adding Apprise later allows an
+available cabin to trigger its first notification.
+
+A notification or state-storage failure affects only that watch. Remaining
+watches and the summary report still run; the process records a partial failure
+and exits with the existing partial-failure status. A missing inventory array or
+an incomplete response cannot rearm an alert. Explicit empty inventory arrays
+confirm closure; unrelated malformed rows do not invalidate a usable match.
+
+An omitted, empty or null `cruises` section disables prospective watches.
 
 Omit `notificationMode`, or set it to `price`, to keep existing price-watch behavior,
 including its required `paidPrice`. Availability mode uses the regular check schedule.

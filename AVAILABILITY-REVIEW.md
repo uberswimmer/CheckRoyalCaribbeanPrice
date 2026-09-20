@@ -175,3 +175,25 @@ through the fork's orchestration and tests. Entertainment/dining availability,
 scheduled checks, configuration compatibility, persistent notification state,
 calendar/report exports, and the dedicated GHCR workflow remain intact. No
 configuration or state migration is required.
+
+## Upstream adoption sync through PR #129
+
+Upstream `main` through `ac7e426931c12ef21ccd2badb223b04046c0a860` is
+reconciled into the fork. Upstream is now authoritative for the functionality
+accepted in PRs #127-129: authenticated-session cleanup after profile failure,
+reservation-scoped `ignoredPriceAlerts`, and prospective cabin availability
+transition alerts.
+
+For cabin alerts, the fork intentionally adopts upstream's editable JSON state
+implementation and readable search keys. The prior fork used SQLite for
+`cabinAvailabilityStateFile`; that file is not migrated. A fresh JSON state may
+therefore send one initial alert for a cabin that is already available, which is an
+accepted transition behavior. Price-history SQLite and reservation-availability
+state remain separate and unchanged.
+
+The sync also includes upstream Browse/PhonePriceCheck/userscript hardening,
+documentation and gitignore privacy fixes, release-build ordering fixes, and
+test-suite robustness changes. Fork-only entertainment/dining availability,
+scheduled checks, calendar/report exports, web run controls, and the dedicated
+GHCR publishing workflow remain in place. The onboard-activity feature PR stays
+separate for rebase and retest after this sync.
