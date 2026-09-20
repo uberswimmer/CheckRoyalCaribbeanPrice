@@ -135,6 +135,13 @@ accountInfo:
 If `outputWatchAsJson` is true, the add-on watch prices checked during each run are also written as a JSON list.
 Set `outputJsonFile` to change the output path; it defaults to `output-json-watch.txt`.
 
+## Reservation-release alerts
+
+Optional dining and entertainment release alerts use your booked Royal Caribbean
+sailings and existing Apprise settings. They check dated offering inventory,
+including free shows, independently of price thresholds. See
+[configuration, notification behavior, and limitations](reservation-alerts.md).
+
 ## Example Config with more options (not all of them)
 ```yaml
 accountInfo:
