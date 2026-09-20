@@ -1,4 +1,4 @@
-name: Temporary PR11 rebase probe
+name: Temporary PR11 rebase validation
 
 on:
   push:
@@ -6,32 +6,67 @@ on:
       - automation/rebase-pr11-2026-09-20
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  probe:
+  validate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Probe cherry-pick
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Apply PR11 commit
         shell: bash
         run: |
-          set -u
+          set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          set +e
           git cherry-pick --no-commit 8dcf018c1f5fa23e47d8d3b8e5b25d3f6c36725a
-          rc=$?
-          set -e
-          echo "CHERRY_PICK_RC=$rc"
-          echo "CONFLICTS_BEGIN"
-          git diff --name-only --diff-filter=U | sort
-          echo "CONFLICTS_END"
-          echo "STATUS_BEGIN"
-          git status --short
-          echo "STATUS_END"
-          if git rev-parse -q --verify CHERRY_PICK_HEAD >/dev/null; then
-            git cherry-pick --abort
-          fi
+          test -z "$(git diff --name-only --diff-filter=U)"
+
+      - name: Full validation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install -r requirements.txt pytest
+          python -m pytest unittests/ -q
+          python -m py_compile CheckRoyalCaribbeanPrice.py BrowseRoyalCaribbeanPrice.py PhonePriceCheck.py
+          bash -n entrypoint.sh
+          python -c "import yaml; [yaml.safe_load(open(p)) for p in ['SAMPLE-config.yaml','SAMPLE-availability-config.yaml','compose.availability.yaml','compose.local-web.yaml','.github/workflows/availability.yml']]"
+          git diff --cached --check
+          docker build -t royal-availability:pr11 .
+          python -c "import yaml; c=yaml.safe_load(open('SAMPLE-availability-config.yaml')); c.pop('apprise',None); c['reportDirectory']='/app/data/public'; c['calendar']={'outputDirectory':'/app/data/calendar','reservations':['1000001']}; yaml.safe_dump(c,open('config.availability.yaml','w'))"
+          docker compose -f compose.availability.yaml config --quiet
+          docker run --rm -v "$PWD/config.availability.yaml:/app/config.yaml:ro" royal-availability:pr11 check --validate-config
+          docker build -f Dockerfile.web -t royal-reports:pr11 .
+          mkdir -p "$PWD/web-smoke"
+          chmod 755 "$PWD/web-smoke"
+          docker run -d --name report-pr11 --read-only --cap-drop ALL --security-opt no-new-privileges:true --tmpfs /tmp:rw,noexec,nosuid,size=16m,mode=1777 -p 127.0.0.1:8088:8080 -v "$PWD/web-smoke:/srv/exports:ro" royal-reports:pr11
+          python unittests/web_server_smoke.py http://127.0.0.1:8088 "$PWD/web-smoke"
+          docker rm -f report-pr11
+          CHECKER_IMAGE=royal-availability:pr11 REPORT_IMAGE=royal-reports:pr11 LAN_IP=127.0.0.1 docker compose -f compose.local-web.yaml config --quiet
+          python -m pip install playwright
+          docker network create run-control-pr11
+          mkdir -p "$PWD/web-control-pr11/public"
+          chmod 755 "$PWD/web-control-pr11" "$PWD/web-control-pr11/public"
+          docker run -d --name checker-control-pr11 --network run-control-pr11 --network-alias cruise-availability-checker -e CHECKER_WEB_ENABLED=true -e CHECKER_WEB_ORIGIN=http://127.0.0.1:8088 -e 'CRON_SCHEDULE=0 0 31 2 *' -v "$PWD/web-control-pr11:/app/data" -v "$PWD/unittests/control_checker_fixture.py:/app/CheckRoyalCaribbeanPrice.py:ro" royal-availability:pr11
+          docker run -d --name report-control-pr11 --network run-control-pr11 --read-only --cap-drop ALL --security-opt no-new-privileges:true --tmpfs /tmp:rw,noexec,nosuid,size=16m,mode=1777 -p 127.0.0.1:8088:8080 -v "$PWD/web-control-pr11/public:/srv/exports:ro" royal-reports:pr11
+          python unittests/run_control_smoke.py http://127.0.0.1:8088 "$PWD/web-control-pr11" checker-control-pr11
+          docker rm -f checker-control-pr11 report-control-pr11
+          docker network rm run-control-pr11
+          rm -f config.availability.yaml
+          rm -rf web-smoke
+          sudo rm -rf web-control-pr11
+
+      - name: Commit validated rebased tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/pr11-rebase-temp.yml
+          git diff --cached --check
+          git commit -m "Support onboard activity watches with captured escape-room eligibility"
+          git push origin HEAD:automation/rebase-pr11-2026-09-20
