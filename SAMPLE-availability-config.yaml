@@ -32,6 +32,15 @@ availability:
       mode: release
       notifyOnReopen: false
 
+    # Optional: escape rooms and other pt_onboardActivities products listed in
+    # the entertainment catalog. Existing show watches do not include them.
+    # - id: onboard-activities
+    #   name: "Onboard activity reservations"
+    #   reservation: "YOUR_ACTIVITY_BOOKING_ID"
+    #   category: onboardActivities
+    #   mode: release
+    #   product: "YOUR_ACTIVITY_PRODUCT_CODE"  # Omit to discover matching activities.
+
     # Optional: enable a watch that also considers the configured party.
     # With guests omitted, the party is passengersInStateroom for this booking.
     # Existing reservations and limits can prevent party-mode alerts.
