@@ -14,7 +14,8 @@ availability:
   only: true
   # Start by comparing log output with Cruise Planner, then change to false.
   dryRun: true
-  stateFile: /app/data/availability.sqlite3
+  # New JSON file; do not rename/reuse an old SQLite database. First run may re-alert.
+  stateFile: /app/data/reservation-availability.json
   watches:
     - id: entertainment
       name: "Entertainment reservations"
