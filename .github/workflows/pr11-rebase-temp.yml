@@ -1,0 +1,37 @@
+name: Temporary PR11 rebase probe
+
+on:
+  push:
+    branches:
+      - automation/rebase-pr11-2026-09-20
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Probe cherry-pick
+        shell: bash
+        run: |
+          set -u
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          set +e
+          git cherry-pick --no-commit 8dcf018c1f5fa23e47d8d3b8e5b25d3f6c36725a
+          rc=$?
+          set -e
+          echo "CHERRY_PICK_RC=$rc"
+          echo "CONFLICTS_BEGIN"
+          git diff --name-only --diff-filter=U | sort
+          echo "CONFLICTS_END"
+          echo "STATUS_BEGIN"
+          git status --short
+          echo "STATUS_END"
+          if git rev-parse -q --verify CHERRY_PICK_HEAD >/dev/null; then
+            git cherry-pick --abort
+          fi
