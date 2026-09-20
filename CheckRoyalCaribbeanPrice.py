@@ -3998,7 +3998,7 @@ class AvailabilitySettings:
     watches: Tuple[AvailabilityWatch, ...]
     only: bool = False
     dry_run: bool = True
-    state_file: str = "data/availability.sqlite3"
+    state_file: str = "data/reservation-availability.json"
 
 
 class AvailabilityUnknown(ValueError):
@@ -4088,7 +4088,7 @@ def parse_availability_config(raw: Any) -> Optional[AvailabilitySettings]:
             enabled=boolean(w, "enabled", True),
             notify_on_reopen=boolean(w, "notifyOnReopen", False), cart_id=cart_id))
     location = "availability"
-    state = raw.get("stateFile", "data/availability.sqlite3")
+    state = raw.get("stateFile", "data/reservation-availability.json")
     if not isinstance(state, str) or not state.strip() or state == ":memory:":
         raise ValueError("availability.stateFile must name a persistent file")
     return AvailabilitySettings(tuple(parsed), boolean(raw, "only", False),
@@ -4392,12 +4392,40 @@ def availability_time_lines(times: tuple) -> list[str]:
             for day, values in by_date.items()]
 
 
+def read_reservation_state(path: Path) -> dict:
+    """Only a missing file starts fresh; invalid or legacy state never resets alerts."""
+    invalid = "Invalid reservation availability JSON state; check availability.stateFile and use a new .json path for legacy SQLite state"
+    try:
+        with path.open(encoding="utf-8") as stream:
+            state = json.load(stream)
+    except FileNotFoundError:
+        return {"version": 1, "watches": {}}
+    except ValueError:
+        raise AvailabilityUnknown(invalid) from None
+    if (not isinstance(state, dict) or set(state) != {"version", "watches"}
+            or type(state["version"]) is not int or state["version"] != 1
+            or not isinstance(state["watches"], dict)):
+        raise AvailabilityUnknown(invalid)
+    for scope, products in state["watches"].items():
+        if not scope or not isinstance(products, dict):
+            raise AvailabilityUnknown(invalid)
+        for product, row in products.items():
+            if (not product or not isinstance(row, dict)
+                    or set(row) != {"last_state", "notified"}
+                    or row["last_state"] not in ("available", "unavailable")
+                    or type(row["notified"]) is not bool):
+                raise AvailabilityUnknown(invalid)
+    return state
+
+
 def deliver_availability(settings: AvailabilitySettings, account: AccountInfo, booking: dict,
-                         watch: AvailabilityWatch, party: tuple, results: list) -> bool:
+                         watch: AvailabilityWatch, party: tuple, results: list,
+                         *, catalog_products: Optional[Set[str]] = None) -> bool:
     """One aggregated alert per watch/run. Failed sends are retried on later runs.
 
-    SQLite serializes concurrent notification decisions. A crash after delivery
-    but before commit can duplicate an alert; external delivery is not atomic.
+    A file lock serializes read/notify/replace, sharing cabin alerts' I/O helpers
+    but using a separate schema. A crash after delivery but before saving can
+    duplicate an alert; external delivery is not atomic.
     Dry runs never create or advance state, so enabling alerts cannot swallow one.
     """
     for r in results:
@@ -4411,61 +4439,66 @@ def deliver_availability(settings: AvailabilitySettings, account: AccountInfo, b
     path = Path(settings.state_file).expanduser()
     path.parent.mkdir(parents=True, exist_ok=True)
     scope = availability_scope(account, booking, watch, party)
-    with closing(sqlite3.connect(path, timeout=30)) as db:
-        db.execute("CREATE TABLE IF NOT EXISTS availability_v1 (scope TEXT, product TEXT, "
-                   "last_state TEXT NOT NULL, notified INTEGER NOT NULL DEFAULT 0, "
-                   "PRIMARY KEY(scope, product))")
-        db.commit()
-        db.execute("BEGIN IMMEDIATE")
-        try:
-            candidates = []
-            for r in results:
-                if r.state == "unknown":
-                    continue
-                row = db.execute("SELECT last_state, notified FROM availability_v1 WHERE scope=? AND product=?",
-                                 (scope, r.product)).fetchone()
-                notified = row[1] if row else 0
-                if r.state == "unavailable" and watch.notify_on_reopen:
-                    notified = 0
-                if r.state == "available" and not notified:
-                    candidates.append(r)
-                db.execute("INSERT INTO availability_v1 VALUES (?, ?, ?, ?) "
-                           "ON CONFLICT(scope,product) DO UPDATE SET last_state=excluded.last_state, notified=excluded.notified",
-                           (scope, r.product, r.state, notified))
-            sent = True
-            if candidates:
-                lines = [f"{watch.name}: {booking['shipCode']} sailing {availability_date(booking['sailDate']).isoformat()}"]
-                lines.append("Inventory released; personal conflicts not checked." if watch.mode == "release" else
-                             "Inventory available; no detected restrictions for the configured party.")
+    with cabin_state_lock(path):
+        state = read_reservation_state(path)
+        rows = state["watches"].get(scope, {})
+        # Compare a complete catalog with saved products under the SAME lock as
+        # notification decisions. Skipped/unknown product types remain present.
+        if catalog_products is not None:
+            missing = [AvailabilityResult(pid, pid, "unavailable", "product no longer listed")
+                       for pid in rows if pid not in catalog_products]
+            for r in missing:
+                log(f"      {YELLOW}{r.title}: Unavailable{RESET} ({r.reason})")
+            results = [*results, *missing]
+        changed = False
+        candidates = []
+        for r in results:
+            if r.state == "unknown":
+                continue
+            row = rows.get(r.product, {})
+            notified = row.get("notified", False)
+            if r.state == "unavailable" and watch.notify_on_reopen:
+                notified = False
+            if r.state == "available" and not notified:
+                candidates.append(r)
+            updated = {"last_state": r.state, "notified": notified}
+            if row != updated:
+                rows[r.product] = updated
+                changed = True
+        sent = True
+        if candidates:
+            lines = [f"{watch.name}: {booking['shipCode']} sailing {availability_date(booking['sailDate']).isoformat()}"]
+            lines.append("Inventory released; personal conflicts not checked." if watch.mode == "release" else
+                         "Inventory available; no detected restrictions for the configured party.")
+            for r in candidates:
+                lines.extend(["", f"{r.title}:"])
+                lines.extend(availability_time_lines(r.times[:6]))
+                if len(r.times) > 6:
+                    lines.append(f"(+{len(r.times) - 6} more times in Cruise Planner)")
+            params = urlencode({"bookingId": str(booking["bookingId"]), "shipCode": booking["shipCode"],
+                                "sailDate": availability_date(booking["sailDate"]).strftime("%Y%m%d")})
+            lines.extend(["", "Cruise Planner:",
+                f"https://www.royalcaribbean.com/account/cruise-planner/category/pt_{watch.category}?{params}",
+                "Times as returned by Royal. Confirm availability in Cruise Planner."])
+            if watch.category == "dining":
+                lines.append("Reported stock does not guarantee a table for the full party.")
+            notifier = notifier_for(account)
+            try:
+                sent = notifier is not None and notifier.notify(body="\n".join(lines),
+                    title="Cruise Reservation Availability", body_format=NotifyFormat.TEXT) is True
+            except Exception:
+                sent = False
+            if sent:
                 for r in candidates:
-                    lines.extend(["", f"{r.title}:"])
-                    lines.extend(availability_time_lines(r.times[:6]))
-                    if len(r.times) > 6:
-                        lines.append(f"(+{len(r.times) - 6} more times in Cruise Planner)")
-                params = urlencode({"bookingId": str(booking["bookingId"]), "shipCode": booking["shipCode"],
-                                    "sailDate": availability_date(booking["sailDate"]).strftime("%Y%m%d")})
-                lines.extend(["", "Cruise Planner:",
-                    f"https://www.royalcaribbean.com/account/cruise-planner/category/pt_{watch.category}?{params}",
-                    "Times as returned by Royal. Confirm availability in Cruise Planner."])
-                if watch.category == "dining":
-                    lines.append("Reported stock does not guarantee a table for the full party.")
-                notifier = notifier_for(account)
-                try:
-                    sent = notifier is not None and notifier.notify(body="\n".join(lines),
-                        title="Cruise Reservation Availability", body_format=NotifyFormat.TEXT) is True
-                except Exception:
-                    sent = False
-                if sent:
-                    for r in candidates:
-                        db.execute("UPDATE availability_v1 SET notified=1 WHERE scope=? AND product=?", (scope, r.product))
-                else:
-                    reason = ("No notification service configured; configure apprise for availability alerts"
-                              if notifier is None else "Notification not confirmed; will retry on a later check")
-                    log_warn(f"      {RED}{reason}{RESET}")
-            db.commit()
-        except Exception:
-            db.rollback()
-            raise
+                    rows[r.product]["notified"] = True
+                    changed = True
+            else:
+                reason = ("No notification service configured; configure apprise for availability alerts"
+                          if notifier is None else "Notification not confirmed; will retry on a later check")
+                log_warn(f"      {RED}{reason}{RESET}")
+        if changed:
+            state["watches"][scope] = rows
+            write_cabin_state(path, state)
     return sent and not any(r.state == "unknown" for r in results)
 
 
@@ -4548,26 +4581,17 @@ def process_availability_bookings(account: AccountInfo, bookings: list, settings
             elif skipped and skipped == len(products):
                 log(f"      {YELLOW}No matching show products listed "
                     f"({skipped} other-category products skipped){RESET}")
-            # Previously seen shows that disappear from a complete catalog are
-            # genuinely absent. Errors/partial pages never reach this branch.
-            if not watch.product and not settings.dry_run and Path(settings.state_file).expanduser().exists():
-                scope = availability_scope(account, booking, watch, party)
-                with closing(sqlite3.connect(Path(settings.state_file).expanduser(), timeout=30)) as db:
-                    exists = db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='availability_v1'").fetchone()
-                    if exists:
-                        prior = db.execute("SELECT product FROM availability_v1 WHERE scope=?", (scope,)).fetchall()
-                        # Retain skipped/unknown IDs so a type change cannot re-arm
-                        # a previously acknowledged show as if it disappeared.
-                        current = {p["id"] for p in products}
-                        results.extend(AvailabilityResult(pid, pid, "unavailable", "product no longer listed")
-                                       for (pid,) in prior if pid not in current)
-            healthy = deliver_availability(settings, account, booking, watch, party, results) and healthy
-        except (AvailabilityUnknown, KeyError, TypeError, AttributeError, ValueError, OSError, sqlite3.Error) as exc:
+            # Only a complete catalog can confirm a previously seen show's
+            # disappearance. Delivery compares it with state while holding the lock.
+            current = {p["id"] for p in products} if not watch.product else None
+            healthy = deliver_availability(settings, account, booking, watch, party, results,
+                                           catalog_products=current) and healthy
+        except (AvailabilityUnknown, KeyError, TypeError, AttributeError, ValueError, OSError, ImportError) as exc:
             # Exception contents may include private API or filesystem details.
             if isinstance(exc, AvailabilityUnknown):
                 reason = str(exc)
-            elif isinstance(exc, (OSError, sqlite3.Error)):
-                reason = f"state storage error ({type(exc).__name__}); check availability.stateFile and directory permissions"
+            elif isinstance(exc, (OSError, ImportError)):
+                reason = f"state storage error ({type(exc).__name__}); check availability.stateFile and directory permissions or overlapping checks"
             else:
                 reason = type(exc).__name__
             log_warn(f"      {RED}Unknown ({reason}); state not advanced{RESET}")

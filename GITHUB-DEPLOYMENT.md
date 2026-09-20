@@ -31,8 +31,12 @@ Keep the existing timezone and cron schedule. Mount:
 
 The host configuration may be named `config.availability.yaml`; it is the same
 single file that appears inside the container as `/app/config.yaml`. Configure
-`availability.stateFile: /app/data/availability.sqlite3` to retain alert history
+`availability.stateFile: /app/data/reservation-availability.json` to retain alert history
 across container recreation.
+
+When updating from reservation-availability SQLite state, choose a new JSON file
+at that path and expect one fresh alert for already available products. Leave the
+old database in place; do not rename it. See [state transition instructions](AVAILABILITY-SETUP.md#updating-from-sqlite-state).
 
 Initially use `only: true` and `dryRun: true`. In the container console, validate
 configuration and then perform one live diagnostic check:

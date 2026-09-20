@@ -78,8 +78,8 @@ docker compose -f compose.availability.yaml down
 ```
 
 The `data` directory remains. Keep it when rebuilding or replacing the container:
-`data/availability.sqlite3` prevents repeated alerts across restarts. This is a
-separate state file from your production price checker. If configuration edits made
+`data/reservation-availability.json` prevents repeated alerts across restarts. This is
+separate from cabin-alert state and the optional price-history database. If configuration edits made
 by your editor replace the mounted file rather than modify it in place, restart the
 container to refresh the bind mount. Schedule/timezone edits require Compose to
 recreate the container (`up -d --force-recreate`).
@@ -198,7 +198,7 @@ quotes differed only in offering IDs and did not validate inventory.
   JSON, GraphQL errors, incomplete pagination, and unrecognized eligibility evidence
   preserve prior state. Other products can still be checked after a product fails.
 - A notifier must return success before the alert is acknowledged. Failed delivery
-  retries on later checks. If a process dies after sending but before committing its
+  retries on later checks. If a process dies after sending but before saving its
   acknowledgement, an alert can repeat. Partial success across multiple Apprise
   destinations can also repeat at successful destinations on retry.
 
@@ -207,9 +207,47 @@ quotes differed only in offering IDs and did not validate inventory.
 Relative `availability.stateFile` paths use the process's working directory, as in
 previous extension versions. Use an absolute path to keep notification history in
 the same location when launching from different directories. For Docker, use
-`/app/data/availability.sqlite3` and keep `/app/data` bind-mounted. On other systems,
-choose an explicit writable absolute path. No path migration or automatic database
-movement is performed.
+`/app/data/reservation-availability.json` and keep `/app/data` bind-mounted. On other systems,
+choose an explicit writable absolute path.
+
+### Updating from SQLite state
+
+Change any explicit `availability.stateFile` setting to a **new, unused JSON path**:
+
+```yaml
+availability:
+  stateFile: /app/data/reservation-availability.json
+```
+
+Keep the other settings in your existing `availability` block. If `stateFile` is
+omitted, the new default is `data/reservation-availability.json`. The old SQLite file
+is left untouched and is not imported. The first live check can send one fresh alert
+for products already available; subsequent checks suppress repeats as usual. There
+is no conversion utility. Renaming a SQLite file to `.json` does not convert it.
+An existing SQLite or malformed JSON file is rejected without sending or overwriting
+it. Cabin state (`cabinAvailabilityStateFile`) and price history (`historyDb`) are
+unchanged. Existing data-directory mounts and schedules continue to work.
+
+### JSON state and resets
+
+The JSON has `version: 1` and a `watches` mapping. Each hashed watch context contains
+product IDs with `last_state` (`available` or `unavailable`) and a boolean `notified`.
+With `notifyOnReopen: false`, `notified: true` is retained even when a product closes.
+No credentials, guest names, raw account emails, or booking numbers are stored.
+The file still represents private watch activity and should not be shared or committed.
+
+A persistent `.lock` sidecar protects the entire read, notification and atomic
+replacement. Leave the sidecar in place; an empty lock file does not indicate a stuck
+check. An overlapping writer skips that watch with a diagnostic and a failed run
+status, rather than waiting or sending a duplicate. The next scheduled run retries.
+Unknown API results preserve existing entries. Invalid state fails visibly instead
+of silently resetting acknowledgements. Dry runs do not read or write state.
+
+To reset an alert deliberately, stop checks first, back up the JSON, and set the
+matching product's `notified` to `false` or remove that product entry. Removing the
+whole JSON resets all reservation watches. Keep valid JSON booleans (`true`/`false`)
+and the version field intact. The context key is hashed, so use the watch's configured
+product ID to identify entries and avoid resetting other contexts for the same product.
 
 Configuration errors name their location, for example
 `availability.watches[1].guests[0]`, and identify an invalid key without printing its

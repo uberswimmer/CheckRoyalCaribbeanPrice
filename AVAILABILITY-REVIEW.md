@@ -85,7 +85,7 @@ the production functions, then verifies one alert across two runs.
    context before enabling alerts. The code deliberately does not create carts.
 4. Compare returned times and restrictions with Cruise Planner in dry-run mode.
 5. Enable alerts and confirm a first live notification using your configured Apprise
-   destination. Preserve `data/availability.sqlite3` when replacing the container.
+   destination. Preserve `data/reservation-availability.json` when replacing the container.
 
 The build workspace has no Docker daemon. Remote validation is now available:
 the repository's Actions tab, `Availability build and publish` workflow.
@@ -197,3 +197,18 @@ test-suite robustness changes. Fork-only entertainment/dining availability,
 scheduled checks, calendar/report exports, web run controls, and the dedicated
 GHCR publishing workflow remain in place. The onboard-activity feature PR stays
 separate for rebase and retest after this sync.
+
+## Reservation state JSON follow-up
+
+Reservation release/party alerts now use a separate, versioned JSON state file,
+defaulting to `data/reservation-availability.json`. They reuse upstream's cabin-state
+locking and atomic-write helpers without changing cabin-state validation or behavior.
+The reservation schema retains independent watch/product acknowledgements and the
+optional reopening policy. Complete-catalog disappearance checks now read prior
+products under the same lock as notification decisions.
+
+Existing SQLite state is not imported, renamed, or overwritten. Point any explicit
+`availability.stateFile` at a new JSON path before deployment. One fresh alert for
+currently available products is expected. Subsequent runs suppress duplicates.
+See `AVAILABILITY-SETUP.md` for transition and reset instructions. Price-history
+SQLite remains unchanged.

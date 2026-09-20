@@ -5,8 +5,9 @@ No tests contact Royal Caribbean or send real notifications.
 """
 import copy
 import json
-import sqlite3
-from dataclasses import replace
+import subprocess
+import sys
+from dataclasses import asdict, replace
 from pathlib import Path
 from unittest.mock import Mock
 
@@ -57,7 +58,7 @@ def context(tmp_path):
                'sailDate': '20991010', 'numberOfNights': 7, 'bookingCurrency': 'USD',
                'passengersInStateroom': [{'passengerId': 'guest-1'}]}
     watch = watch_for(mode='release')
-    settings = c.AvailabilitySettings((watch,), True, False, str(tmp_path/'state.sqlite3'))
+    settings = c.AvailabilitySettings((watch,), True, False, str(tmp_path/'state.json'))
     return account, booking, watch, settings, (('guest-1', 'booking-1'),)
 
 
@@ -212,7 +213,14 @@ def deliver(context, results=None):
     return c.deliver_availability(s,a,b,w,p,results if results is not None else [state_result()])
 
 
-def test_first_available_notifies_once_across_new_connections(context):
+def saved_rows(context):
+    a, b, w, s, p = context
+    state = json.loads(Path(s.state_file).read_text())
+    assert state['version'] == 1
+    return state['watches'][c.availability_scope(a, b, w, p)]
+
+
+def test_first_available_notifies_once_across_state_reloads(context):
     assert deliver(context)
     assert deliver(context)
     assert c.config.apobj.notify.call_count == 1
@@ -263,8 +271,7 @@ def test_unknown_never_rearms_or_changes_state(context):
     ctx = a,b,replace(w,notify_on_reopen=True),s,p
     deliver(ctx)
     assert not deliver(ctx,[state_result('unknown')])
-    with sqlite3.connect(s.state_file) as db:
-        assert db.execute('SELECT last_state,notified FROM availability_v1').fetchone() == ('available',1)
+    assert saved_rows(ctx) == {'Y7QG': {'last_state': 'available', 'notified': True}}
     deliver(ctx)
     assert c.config.apobj.notify.call_count == 1
 
@@ -348,6 +355,8 @@ def test_config_defaults_and_normalization():
     assert s.only and s.dry_run
     assert s.watches[0].reservation == '123'
     assert s.watches[0].product is None and s.watches[0].mode == 'release'
+    assert s.state_file == 'data/reservation-availability.json'
+    assert c.AvailabilitySettings(s.watches).state_file == s.state_file
 
 
 @pytest.mark.parametrize('mutation',[
@@ -438,13 +447,58 @@ def test_unwritable_state_does_not_send(context,monkeypatch):
     c.config.apobj.notify.assert_not_called()
 
 
-def test_concurrent_deliveries_are_serialized(context):
-    import concurrent.futures
-    # Both processes may observe an opening. The second notification decision
-    # must see the first transaction's acknowledgement.
-    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
-        assert all(pool.map(lambda _:deliver(context),range(2)))
-    assert c.config.apobj.notify.call_count == 1
+def test_concurrent_process_cannot_send_during_read_notify_or_replace(context, monkeypatch):
+    a, b, w, s, p = context
+    marker = Path(s.state_file).with_suffix('.sent')
+    script = '''
+import json, sys
+from pathlib import Path
+from unittest.mock import Mock
+import CheckRoyalCaribbeanPrice as c
+data = json.loads(sys.argv[2])
+a = c.AccountInfo(data['username'], 'fictional')
+w = c.AvailabilityWatch(**data['watch'])
+s = c.AvailabilitySettings((w,), dry_run=False, state_file=sys.argv[1])
+c.config = c.CruiseAppConfig()
+c.config.apobj = Mock()
+c.log = Mock()
+c.log_warn = Mock()
+def send(**kwargs):
+    Path(sys.argv[3]).write_text('unexpected duplicate')
+    return True
+c.config.apobj.notify.side_effect = send
+try:
+    c.deliver_availability(s, a, data['booking'], w, (),
+        [c.AvailabilityResult('Y7QG', 'Headliner', 'available', 'test')])
+except OSError:
+    sys.exit(23)
+'''
+    command = [sys.executable, '-c', script, s.state_file,
+               json.dumps({'username': a.username, 'booking': b, 'watch': asdict(w)}), str(marker)]
+    def competing_run():
+        result = subprocess.run(command, capture_output=True, text=True, timeout=30)
+        assert result.returncode == 23, result.stdout + result.stderr
+        assert not marker.exists()
+    read = c.read_reservation_state
+    write = c.write_cabin_state
+    def checked_read(path):
+        competing_run()
+        return read(path)
+    def checked_send(**kwargs):
+        competing_run()
+        return True
+    def checked_write(path, state):
+        competing_run()
+        write(path, state)
+        competing_run()  # replacing the JSON inode must not release its sidecar lock
+    monkeypatch.setattr(c, 'read_reservation_state', checked_read)
+    monkeypatch.setattr(c, 'write_cabin_state', checked_write)
+    c.config.apobj.notify.side_effect = checked_send
+    assert deliver(context)
+    retry = subprocess.run(command, capture_output=True, text=True, timeout=30)
+    assert retry.returncode == 0, retry.stdout + retry.stderr
+    assert not marker.exists()
+    c.config.apobj.notify.assert_called_once()
 
 
 def test_end_to_end_only_mode_uses_captured_contracts_and_persists(context,monkeypatch):
@@ -511,7 +565,7 @@ def test_validate_cli_makes_no_requests(tmp_path):
                         capture_output=True,text=True,timeout=10)
     assert proc.returncode==0,proc.stderr
     assert 'No Royal Caribbean requests made' in proc.stdout
-    assert not (tmp_path/'availability.sqlite3').exists()
+    assert not (tmp_path/'reservation-availability.json').exists()
 
 
 @pytest.mark.parametrize('dry_run', [True, False])
@@ -579,15 +633,11 @@ def test_skipped_type_change_preserves_previous_notification(context, monkeypatc
     w = replace(w, product=None, notify_on_reopen=True)
     ctx = a, b, w, s, p
     deliver(ctx)
-    before = sqlite3.connect(s.state_file)
-    original = before.execute('SELECT * FROM availability_v1').fetchall()
-    before.close()
+    original = Path(s.state_file).read_bytes()
     monkeypatch.setattr(c, 'availability_products', Mock(return_value=[
         {'id': 'Y7QG', 'title': 'Changed type', 'type': {'id': 'pt_activity'}}]))
     assert c.process_availability_bookings(a, [b], replace(s, watches=(w,)))
-    after = sqlite3.connect(s.state_file)
-    assert after.execute('SELECT * FROM availability_v1').fetchall() == original
-    after.close()
+    assert Path(s.state_file).read_bytes() == original
     deliver(ctx)
     assert c.config.apobj.notify.call_count == 1
 
@@ -901,8 +951,7 @@ def test_native_apprise_split_preserves_all_shows_and_retries_failed_delivery(co
                                    ('2099-10-10T20:30:00', '2099-10-11T22:30:00')) for i in range(30)]
     service.send.side_effect = lambda **kwargs: 'Show 00' not in kwargs['body']
     assert not c.deliver_availability(s, a, b, w, p, results)
-    with sqlite3.connect(s.state_file) as db:
-        assert db.execute('SELECT SUM(notified) FROM availability_v1').fetchone()[0] == 0
+    assert all(row['notified'] is False for row in saved_rows(context).values())
     service.send.reset_mock()
     service.send.side_effect = None
     assert c.deliver_availability(s, a, b, w, p, results)
@@ -915,3 +964,116 @@ def test_native_apprise_split_preserves_all_shows_and_retries_failed_delivery(co
     service.send.reset_mock()
     assert c.deliver_availability(s, a, b, w, p, results)
     service.send.assert_not_called()
+
+
+@pytest.mark.parametrize('contents', [
+    b'', b'not json', b'null', b'[]', b'{}', b'{', b'\xff', b'SQLite format 3\x00',
+    b'{"version":2,"watches":{}}', b'{"version":true,"watches":{}}',
+    b'{"version":1,"watches":[]}', b'{"version":1,"watches":{},"unexpected":0}',
+    b'{"version":1,"watches":{"scope":null}}',
+    b'{"version":1,"watches":{"":{"product":{"last_state":"available","notified":true}}}}',
+    b'{"version":1,"watches":{"scope":{"":{}}}}',
+    b'{"version":1,"watches":{"scope":{"product":null}}}',
+    b'{"version":1,"watches":{"scope":{"product":{"last_state":"unknown","notified":true}}}}',
+    b'{"version":1,"watches":{"scope":{"product":{"last_state":"available","notified":1}}}}',
+    b'{"version":1,"watches":{"scope":{"product":{"last_state":"available","notified":"false"}}}}',
+    b'{"version":1,"watches":{"scope":{"product":{"last_state":"available"}}}}',
+])
+def test_invalid_json_state_is_preserved_without_sending(context, contents):
+    path = Path(context[3].state_file)
+    path.write_bytes(contents)
+    with pytest.raises(c.AvailabilityUnknown, match='JSON state'):
+        deliver(context)
+    assert path.read_bytes() == contents
+    c.config.apobj.notify.assert_not_called()
+
+
+@pytest.mark.parametrize('operation', ['fsync', 'replace'])
+def test_failed_json_save_preserves_previous_acknowledgements_and_retries(context, monkeypatch, operation):
+    assert deliver(context)
+    path = Path(context[3].state_file)
+    before = path.read_bytes()
+    with monkeypatch.context() as patch:
+        patch.setattr(c.os, operation, Mock(side_effect=OSError('disk error')))
+        with pytest.raises(OSError):
+            deliver(context, [state_result(product='second')])
+    assert path.read_bytes() == before
+    assert not list(path.parent.glob('*.tmp'))
+    # Delivery before a failed save may repeat, but previously saved alerts do not.
+    assert deliver(context, [state_result(), state_result(product='second')])
+    assert c.config.apobj.notify.call_count == 3
+    assert saved_rows(context)['second']['notified'] is True
+    assert deliver(context, [state_result(), state_result(product='second')])
+    assert c.config.apobj.notify.call_count == 3
+
+
+def test_unknown_and_unchanged_json_state_are_not_rewritten(context, monkeypatch):
+    assert deliver(context)
+    write = Mock(side_effect=AssertionError('unexpected write'))
+    monkeypatch.setattr(c, 'write_cabin_state', write)
+    assert not deliver(context, [state_result('unknown')])
+    assert deliver(context)
+    write.assert_not_called()
+    c.config.apobj.notify.assert_called_once()
+
+
+def test_json_keeps_independent_watch_scopes(context):
+    a, b, w, s, p = context
+    contexts = [context, (replace(a, username='second@example.invalid'), b, w, s, p),
+                (a, dict(b, sailDate='20991017'), w, s, p),
+                (a, b, replace(w, id='another-watch'), s, p),
+                (a, b, replace(w, category='dining'), s, p),
+                (a, b, replace(w, mode='party'), s, p)]
+    for ctx in contexts:
+        assert deliver(ctx)
+    for ctx in contexts:
+        assert deliver(ctx)
+        assert saved_rows(ctx)['Y7QG']['notified'] is True
+    assert c.config.apobj.notify.call_count == len(contexts)
+    state = json.loads(Path(s.state_file).read_text())
+    assert len(state['watches']) == len(contexts)
+    assert a.username not in Path(s.state_file).read_text()
+    assert b['bookingId'] not in Path(s.state_file).read_text()
+
+
+def test_explicit_reset_rearms_only_selected_product(context):
+    assert deliver(context, [state_result(), state_result(product='second')])
+    a, b, w, s, p = context
+    path = Path(s.state_file)
+    state = json.loads(path.read_text())
+    state['watches'][c.availability_scope(a, b, w, p)]['Y7QG']['notified'] = False
+    path.write_text(json.dumps(state))
+    assert deliver(context, [state_result(), state_result(product='second')])
+    assert c.config.apobj.notify.call_count == 2
+    assert saved_rows(context)['second']['notified'] is True
+
+
+def test_legacy_sqlite_file_is_never_converted_or_overwritten(context):
+    import sqlite3
+    a, b, w, s, p = context
+    legacy = Path(s.state_file).with_suffix('.sqlite3')
+    with sqlite3.connect(legacy) as db:
+        db.execute('CREATE TABLE availability_v1 (scope TEXT, product TEXT, last_state TEXT, notified INTEGER)')
+        db.execute('INSERT INTO availability_v1 VALUES (?, ?, ?, ?)',
+                   (c.availability_scope(a, b, w, p), 'Y7QG', 'available', 1))
+    original = legacy.read_bytes()
+    with pytest.raises(c.AvailabilityUnknown, match='new .json path'):
+        deliver((a, b, w, replace(s, state_file=str(legacy)), p))
+    c.config.apobj.notify.assert_not_called()
+    assert deliver(context)
+    assert deliver(context)
+    c.config.apobj.notify.assert_called_once()
+    assert legacy.read_bytes() == original
+
+
+def test_lock_contention_reports_failure_without_changing_state(context, monkeypatch):
+    a, b, w, s, p = context
+    assert deliver(context)
+    before = Path(s.state_file).read_bytes()
+    monkeypatch.setattr(c, 'availability_products', Mock(return_value=[]))
+    with c.cabin_state_lock(Path(s.state_file)):
+        assert not c.process_availability_bookings(a, [b], s)
+    assert Path(s.state_file).read_bytes() == before
+    c.config.apobj.notify.assert_called_once()
+    messages = '\n'.join(call.args[0] for call in c.log_warn.call_args_list)
+    assert 'overlapping checks' in messages
