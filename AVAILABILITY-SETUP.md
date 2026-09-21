@@ -50,8 +50,8 @@ The common configuration is intentionally simple:
 - `false` disables that category.
 
 Royal's Dining category can also contain packages and onboard activities. Those are
-not queried as restaurant reservations because their returned product type differs
-from `pt_dining`.
+silently ignored and are not queried as restaurant reservations because their
+returned product type differs from `pt_dining`.
 
 For selective monitoring, provide product IDs:
 

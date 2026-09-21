@@ -4479,8 +4479,6 @@ def process_availability_bookings(account: AccountInfo, bookings: list, settings
                 catalog_products = {product["id"] for product in scoped_products}
                 catalog_ids = {product["id"] for product in products}
                 results = []
-                skipped = 0
-
                 for product in scoped_products:
                     pid = product["id"]
                     title = product.get("title") or pid
@@ -4493,10 +4491,8 @@ def process_availability_bookings(account: AccountInfo, bookings: list, settings
                         if selected is not None:
                             results.append(AvailabilityResult(
                                 pid, title, "unknown", "unexpected product type: " + type_id))
-                        else:
-                            log(f"      {title}: skipped "
-                                f"(catalog type {type_id}; watching pt_{category.category})")
-                            skipped += 1
+                        # Category catalogs can contain packages/activities that
+                        # are intentionally out of scope. Ignore them silently.
                         continue
                     try:
                         payload = availability_eligibility(
@@ -4514,9 +4510,6 @@ def process_availability_bookings(account: AccountInfo, bookings: list, settings
 
                 if not scoped_products and selected is None:
                     log(f"      {YELLOW}No {category.category} products listed{RESET}")
-                elif selected is None and skipped and skipped == len(scoped_products):
-                    log(f"      {YELLOW}No matching {category.category} products listed "
-                        f"({skipped} other-category products skipped){RESET}")
 
                 healthy = deliver_availability(
                     settings, account, booking, category, reservation.notify_on_reopen,

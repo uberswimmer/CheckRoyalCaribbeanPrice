@@ -57,8 +57,8 @@ At least one of `dining` or `shows` must be enabled for each reservation. Produc
 codes are not required for normal use. The tracker reads the sailing's category
 catalog, filters to products whose returned type matches the requested category,
 and then checks dated offering inventory for each matching product. Royal's Dining
-catalog can also contain packages and onboard activities; those are skipped unless
-their returned type is exactly `pt_dining`. A selected product that is present with
+catalog can also contain packages and onboard activities; products whose returned
+type is not `pt_dining` are silently ignored. A selected product that is present with
 an unexpected type is treated as unknown rather than closed.
 
 The first live check alerts for products that are already available. An alert is
