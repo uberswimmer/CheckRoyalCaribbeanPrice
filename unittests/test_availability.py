@@ -201,24 +201,20 @@ def test_no_notifier_does_not_acknowledge(context):
 
 
 @pytest.mark.parametrize('reopen,expected', [(False,1),(True,2)])
+
 def test_known_closed_reopens_only_when_requested(context,reopen,expected):
-    a,b,w,s,p = context
-    ctx = a,b,replace(w,notify_on_reopen=reopen),s,p
-    deliver(ctx)
-    deliver(ctx,[state_result('unavailable')])
-    deliver(ctx)
+    assert deliver(context, notify_on_reopen=reopen)
+    assert deliver(context, [state_result('unavailable')], notify_on_reopen=reopen)
+    assert deliver(context, notify_on_reopen=reopen)
     assert c.config.apobj.notify.call_count == expected
 
 
 def test_unknown_never_rearms_or_changes_state(context):
-    a,b,w,s,p = context
-    ctx = a,b,replace(w,notify_on_reopen=True),s,p
-    deliver(ctx)
-    assert not deliver(ctx,[state_result('unknown')])
-    assert saved_rows(ctx) == {'Y7QG': {'last_state': 'available', 'notified': True}}
-    deliver(ctx)
+    assert deliver(context, notify_on_reopen=True)
+    assert not deliver(context, [state_result('unknown')], notify_on_reopen=True)
+    assert saved_rows(context) == {'Y7QG': {'last_state': 'available', 'notified': True}}
+    assert deliver(context, notify_on_reopen=True)
     assert c.config.apobj.notify.call_count == 1
-
 
 def test_aggregate_new_products_and_skip_acknowledged_ones(context):
     first = replace(state_result(product='first'), title='First show')
@@ -403,31 +399,35 @@ def test_api_body_failure_status(context,monkeypatch):
     with pytest.raises(c.AvailabilityUnknown):c.availability_json(a,'GET','https://example.invalid')
 
 
+
 def test_catalog_failure_cannot_rearm_previously_notified_product(context,monkeypatch):
-    a,b,w,s,p = context
-    w = replace(w,notify_on_reopen=True)
-    deliver((a,b,w,s,p))
+    a,b,category,s,p = context
+    settings = replace(s, reservations=(
+        c.AvailabilityReservation(str(b['bookingId']), (category,), True),))
+    assert deliver((a,b,category,settings,p), notify_on_reopen=True)
     monkeypatch.setattr(c,'availability_products',Mock(side_effect=c.AvailabilityUnknown('outage')))
-    assert not c.process_availability_bookings(a,[b],replace(s,watches=(w,)))
-    deliver((a,b,w,s,p))
+    assert not c.process_availability_bookings(a,[b],settings)
+    assert deliver((a,b,category,settings,p), notify_on_reopen=True)
     assert c.config.apobj.notify.call_count == 1
 
 
 def test_disappeared_show_can_rearm_after_complete_empty_catalog(context,monkeypatch):
-    a,b,w,s,p = context
-    w = replace(w,product=None,notify_on_reopen=True)
-    ctx = a,b,w,s,p
-    deliver(ctx)
+    a,b,category,s,p = context
+    discovery = replace(category, products=None)
+    settings = replace(s, reservations=(
+        c.AvailabilityReservation(str(b['bookingId']), (discovery,), True),))
+    ctx = a,b,discovery,settings,p
+    assert deliver(ctx, notify_on_reopen=True)
     monkeypatch.setattr(c,'availability_products',Mock(return_value=[]))
-    assert c.process_availability_bookings(a,[b],replace(s,watches=(w,)))
-    deliver(ctx)
+    assert c.process_availability_bookings(a,[b],settings)
+    assert deliver(ctx, notify_on_reopen=True)
     assert c.config.apobj.notify.call_count == 2
 
 
 def test_unwritable_state_does_not_send(context,monkeypatch):
-    a,b,w,s,p = context
+    a,b,category,s,p = context
     monkeypatch.setattr(c,'availability_products',Mock(return_value=[
-        {'id':w.product,'title':'Headliner','type':{'id':'pt_show'}}]))
+        {'id':category.products[0],'title':'Headliner','type':{'id':'pt_show'}}]))
     monkeypatch.setattr(c,'availability_eligibility',Mock(return_value=capture('headliner')))
     directory = str(Path(s.state_file).parent)
     assert not c.process_availability_bookings(a,[b],replace(s,state_file=directory))
@@ -435,7 +435,7 @@ def test_unwritable_state_does_not_send(context,monkeypatch):
 
 
 def test_concurrent_process_cannot_send_during_read_notify_or_replace(context, monkeypatch):
-    a, b, w, s, p = context
+    a, b, category, s, p = context
     marker = Path(s.state_file).with_suffix('.sent')
     script = '''
 import json, sys
@@ -444,8 +444,12 @@ from unittest.mock import Mock
 import CheckRoyalCaribbeanPrice as c
 data = json.loads(sys.argv[2])
 a = c.AccountInfo(data['username'], 'fictional')
-w = c.AvailabilityWatch(**data['watch'])
-s = c.AvailabilitySettings((w,), dry_run=False, state_file=sys.argv[1])
+category_data = data['category']
+category = c.AvailabilityCategory(
+    category_data['category'],
+    tuple(category_data['products']) if category_data['products'] is not None else None)
+reservation = c.AvailabilityReservation(str(data['booking']['bookingId']), (category,))
+s = c.AvailabilitySettings((reservation,), dry_run=False, state_file=sys.argv[1])
 c.config = c.CruiseAppConfig()
 c.config.apobj = Mock()
 c.log = Mock()
@@ -455,13 +459,13 @@ def send(**kwargs):
     return True
 c.config.apobj.notify.side_effect = send
 try:
-    c.deliver_availability(s, a, data['booking'], w, (),
+    c.deliver_availability(s, a, data['booking'], category, False,
         [c.AvailabilityResult('Y7QG', 'Headliner', 'available', 'test')])
 except OSError:
     sys.exit(23)
 '''
     command = [sys.executable, '-c', script, s.state_file,
-               json.dumps({'username': a.username, 'booking': b, 'watch': asdict(w)}), str(marker)]
+               json.dumps({'username': a.username, 'booking': b, 'category': asdict(category)}), str(marker)]
     def competing_run():
         result = subprocess.run(command, capture_output=True, text=True, timeout=30)
         assert result.returncode == 23, result.stdout + result.stderr
@@ -477,7 +481,7 @@ except OSError:
     def checked_write(path, state):
         competing_run()
         write(path, state)
-        competing_run()  # replacing the JSON inode must not release its sidecar lock
+        competing_run()
     monkeypatch.setattr(c, 'read_reservation_state', checked_read)
     monkeypatch.setattr(c, 'write_cabin_state', checked_write)
     c.config.apobj.notify.side_effect = checked_send
@@ -486,7 +490,6 @@ except OSError:
     assert retry.returncode == 0, retry.stdout + retry.stderr
     assert not marker.exists()
     c.config.apobj.notify.assert_called_once()
-
 
 def test_booking_path_returns_snapshot_without_running_availability_early(context,monkeypatch):
     a,b,w,s,p = context
