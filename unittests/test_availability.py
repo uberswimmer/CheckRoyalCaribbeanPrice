@@ -346,8 +346,10 @@ def test_dining_discovery_checks_every_matching_dining_product(context, monkeypa
     monkeypatch.setattr(c, 'availability_eligibility', check)
     assert c.process_availability_bookings(a, [b], settings)
     assert [call.args[3] for call in check.call_args_list] == ['dining-1', 'dining-2']
-    assert any('Other activity: skipped' in call.args[0] for call in c.log.call_args_list)
-    assert any('Dining package: skipped' in call.args[0] for call in c.log.call_args_list)
+    output = "\n".join(call.args[0] for call in c.log.call_args_list)
+    assert 'Other activity' not in output
+    assert 'Dining package' not in output
+    assert 'skipped' not in output
 
 
 def test_selective_dining_only_checks_configured_products(context, monkeypatch):
@@ -593,7 +595,10 @@ def test_discovery_skips_other_category_without_error_or_notification(context, m
     assert c.process_availability_bookings(a, [b], settings)
     eligibility.assert_not_called()
     c.config.apobj.notify.assert_not_called()
-    assert any('2 other-category products skipped' in call.args[0] for call in c.log.call_args_list)
+    output = "\n".join(call.args[0] for call in c.log.call_args_list)
+    assert 'Escape room' not in output
+    assert 'Experience dinner' not in output
+    assert 'skipped' not in output
     if dry_run:
         assert not Path(s.state_file).exists()
 
