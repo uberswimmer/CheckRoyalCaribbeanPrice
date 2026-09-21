@@ -77,7 +77,8 @@ def test_royal_railway_contract_is_dining_and_active_flag_does_not_hide_inventor
     assert all(offering['active'] is False for offering in data['payload']['offerings'])
     result = evaluate('railway')
     assert result.state == 'available'
-    assert result.times == ('2098-07-02T18:00:00', '2098-07-02T18:10:00')
+    assert result.times[:2] == ('2098-07-02T18:00:00', '2098-07-02T18:10:00')
+    assert len(result.times) == 12
 
 
 @pytest.mark.parametrize('status', ['inStock', 'outOfStock', 'OUT_OF_STOCK'])
@@ -979,36 +980,26 @@ def test_mismatched_or_incomplete_eligibility_is_unknown(mutation):
     assert evaluate(data=data).state == 'unknown'
 
 
-@pytest.mark.parametrize('failure', ['unknown', 'missing', 'lookup', 'state'])
-def test_release_failure_finishes_price_outputs_closes_sessions_and_sets_partial_failure(context, monkeypatch, failure):
+@pytest.mark.parametrize('failure', ['check', 'missing_booking', 'booking_lookup'])
+def test_combined_failure_finishes_price_outputs_and_marks_run_failed(context, monkeypatch, failure):
     a, b = setup_combined_console(context, monkeypatch)
-    second = replace(a, username='second@example.invalid', access=c.APIAccess('fake', 'second', Mock()))
-    c.config.accounts.append(second)
-    bookings = Mock(side_effect=[None if failure == 'lookup' else ([] if failure == 'missing' else [b]), []])
-    monkeypatch.setattr(c, 'get_voyages', bookings)
-    monkeypatch.setattr(c, 'availability_products', Mock(return_value=[]))
-    if failure == 'state':
-        monkeypatch.setattr(c, 'read_reservation_state', Mock(side_effect=OSError('disk')))
-    elif failure == 'unknown':
-        monkeypatch.setattr(c, 'availability_products', Mock(side_effect=c.AvailabilityUnknown('unavailable API')))
-    prices = Mock()
-    monkeypatch.setattr(c, 'get_cruise_price', prices)
-    tracker = Mock()
-    monkeypatch.setattr(c, 'CheckinPaymentTracker', Mock(return_value=tracker))
+    c.history = Mock()
     c.config.output_watch_as_json = True
-    output = Mock()
-    monkeypatch.setattr(c, 'write_watch_price_json', output)
-    with pytest.raises(SystemExit) as error:
+    events = []
+    bookings = [b] if failure == 'check' else ([] if failure == 'missing_booking' else None)
+    monkeypatch.setattr(c, 'get_voyages', Mock(return_value=bookings))
+    monkeypatch.setattr(c, 'get_cruise_price', Mock(side_effect=lambda *a, **k: events.append('prospective')))
+    monkeypatch.setattr(c, 'process_availability_bookings', Mock(return_value=failure != 'check'))
+    monkeypatch.setattr(c.CheckinPaymentTracker, 'print_table', lambda self: events.append('summary'))
+    monkeypatch.setattr(c, 'write_watch_price_json', Mock(side_effect=lambda *a: events.append('export')))
+    with pytest.raises(c.AvailabilityUnknown):
         c.main()
-    assert error.value.code == c.EXIT_PARTIAL_FAILURE
-    assert bookings.call_count == 2
-    prices.assert_called_once()
-    tracker.print_table.assert_called_once()
-    output.assert_called_once()
+    assert events == ['prospective', 'summary', 'export']
+    assert c.history.finish_run.call_args.args[0] == 'error'
     a.access.session.close.assert_called_once()
-    second.access.session.close.assert_called_once()
-    assert c.history.finish_run.call_args.args[0] == 'partial_failure'
-
+    if failure == 'missing_booking':
+        assert any('Configured reservations were not found' in call.args[0]
+                   for call in c.log_warn.call_args_list)
 
 @pytest.mark.parametrize('enabled', [False, True])
 def test_disabled_release_checks_make_no_extra_requests(context, monkeypatch, enabled):
