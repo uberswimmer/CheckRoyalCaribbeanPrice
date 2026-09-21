@@ -4263,6 +4263,8 @@ def parse_availability_config(raw: Any) -> Optional[AvailabilitySettings]:
             if category not in ("show", "dining"):
                 fail("category must be show or dining")
             product = identifier(w["product"], "product") if "product" in w else None
+            if category == "dining" and product is None:
+                fail("dining watches require a product code")
             parsed.append(AvailabilityWatch(
                 id=wid, name=identifier(w.get("name", wid), "name"),
                 reservation=identifier(w.get("reservation"), "reservation"),
