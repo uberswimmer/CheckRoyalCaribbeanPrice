@@ -25,16 +25,18 @@ def party_for(data):
     return tuple((g['id'], g['reservationId']) for g in data['payload']['guests'])
 
 
-def watch_for(name='headliner'):
+def category_for(name='headliner', *, discover=False):
     data = capture(name)
-    return c.AvailabilityWatch('watch', name, 'booking-1',
-        'dining' if name == 'railway' else 'show', data['payload']['productCode'])
+    category = 'dining' if name == 'railway' else 'show'
+    products = None if discover else (data['payload']['productCode'],)
+    return c.AvailabilityCategory(category, products)
 
 
 def evaluate(name='headliner', data=None):
     original = capture(name)
+    category = category_for(name)
     return c.evaluate_availability(data if data is not None else original,
-        watch_for(name), original['payload']['productCode'], name, party_for(original))
+        category.category, original['payload']['productCode'], name)
 
 
 @pytest.fixture(autouse=True)
@@ -57,9 +59,10 @@ def context(tmp_path):
     booking = {'bookingId': 'booking-1', 'passengerId': 'guest-1', 'shipCode': 'IC',
                'sailDate': '20991010', 'numberOfNights': 7, 'bookingCurrency': 'USD',
                'passengersInStateroom': [{'passengerId': 'guest-1'}]}
-    watch = watch_for()
-    settings = c.AvailabilitySettings((watch,), False, str(tmp_path/'state.json'))
-    return account, booking, watch, settings, (('guest-1', 'booking-1'),)
+    category = category_for()
+    reservation = c.AvailabilityReservation('booking-1', (category,))
+    settings = c.AvailabilitySettings((reservation,), False, str(tmp_path/'state.json'))
+    return account, booking, category, settings, (('guest-1', 'booking-1'),)
 
 
 def test_release_ignores_personal_conflicts():
@@ -133,7 +136,7 @@ def test_eligibility_request_uses_booking_context_without_cart_mutation(context,
     for o in response['payload']['offerings']:o['dateTime'] = o['dateTime'].replace('2098-04-06', '2099-10-10')
     fetch = Mock(return_value=response)
     monkeypatch.setattr(c, 'availability_json', fetch)
-    c.availability_eligibility(a,b,w,w.product,party)
+    c.availability_eligibility(a,b,w.category,w.products[0],party)
     assert fetch.call_args.args[1] == 'POST'
     assert fetch.call_args.args[2].endswith('/eligibility/v1/eligibility')
     body = fetch.call_args.kwargs['json_data']
@@ -147,16 +150,18 @@ def state_result(state='available', product='Y7QG'):
     return c.AvailabilityResult(product,'Headliner',state,'test',('2099-10-10T21:30:00',) if state=='available' else ())
 
 
-def deliver(context, results=None):
-    a,b,w,s,p = context
-    return c.deliver_availability(s,a,b,w,p,results if results is not None else [state_result()])
+def deliver(context, results=None, *, notify_on_reopen=False):
+    a,b,category,s,p = context
+    return c.deliver_availability(
+        s, a, b, category, notify_on_reopen,
+        results if results is not None else [state_result()])
 
 
 def saved_rows(context):
-    a, b, w, s, p = context
+    a, b, category, s, p = context
     state = json.loads(Path(s.state_file).read_text())
     assert state['version'] == 1
-    return state['watches'][c.availability_scope(a, b, w, p)]
+    return state['scopes'][c.availability_scope(a, b, category.category)]
 
 
 def test_first_available_notifies_once_across_state_reloads(context):
@@ -339,14 +344,14 @@ def test_config_defaults_and_normalization():
     lambda d:d.update(dryrun=False),
     lambda d:d.update(stateFile=':memory:'),
     lambda d:d.update(watches=[]),
-    lambda d:d['watches'].append(copy.deepcopy(d['watches'][0])),
-    lambda d:d['watches'][0].update(category='dining'),
-    lambda d:d['watches'][0].update(category='pt_show'),
-    lambda d:d['watches'][0].update(mode='available'),
-    lambda d:d['watches'][0].update(reservation=None),
-    lambda d:d['watches'][0].update(enabled='false'),
-    lambda d:d['watches'][0].update(guests=[]),
-    lambda d:d['watches'][0].update(guests=[{'id':'guest'}]),
+    lambda d:d['scopes'].append(copy.deepcopy(d['scopes'][0])),
+    lambda d:d['scopes'][0].update(category='dining'),
+    lambda d:d['scopes'][0].update(category='pt_show'),
+    lambda d:d['scopes'][0].update(mode='available'),
+    lambda d:d['scopes'][0].update(reservation=None),
+    lambda d:d['scopes'][0].update(enabled='false'),
+    lambda d:d['scopes'][0].update(guests=[]),
+    lambda d:d['scopes'][0].update(guests=[{'id':'guest'}]),
 ])
 def test_invalid_config_rejected(mutation):
     data = valid_config()
@@ -358,7 +363,7 @@ def test_eligibility_rejects_other_sailing(context,monkeypatch):
     a,b,w,s,p = context
     monkeypatch.setattr(c,'availability_json',Mock(return_value=capture('headliner')))
     with pytest.raises(c.AvailabilityUnknown,match='outside requested sailing'):
-        c.availability_eligibility(a,b,w,w.product,p)
+        c.availability_eligibility(a,b,w.category,w.products[0],p)
 
 
 def test_api_body_failure_status(context,monkeypatch):
@@ -613,10 +618,10 @@ def test_catalog_cache_isolated_by_account_booking_and_category(context, monkeyp
 
 @pytest.mark.parametrize('change, expected', [
     (lambda d:d.update(dryrun=True), 'availability: unrecognized configuration key(s): dryrun'),
-    (lambda d:d['watches'][0].update(mod='release'), 'availability.watches[0]: unrecognized configuration key(s): mod'),
-    (lambda d:d['watches'][0].update(enabled='false'), 'availability.watches[0]: enabled must be true or false'),
-    (lambda d:d['watches'][0].update(guests=[{'id':'test','reservationID':'SECRET_VALUE'}]), 'availability.watches[0]: unrecognized configuration key(s): guests'),
-    (lambda d:d['watches'][0].update(reservation=None), 'availability.watches[0]: reservation must be a nonempty identifier'),
+    (lambda d:d['scopes'][0].update(mod='release'), 'availability.watches[0]: unrecognized configuration key(s): mod'),
+    (lambda d:d['scopes'][0].update(enabled='false'), 'availability.watches[0]: enabled must be true or false'),
+    (lambda d:d['scopes'][0].update(guests=[{'id':'test','reservationID':'SECRET_VALUE'}]), 'availability.watches[0]: unrecognized configuration key(s): guests'),
+    (lambda d:d['scopes'][0].update(reservation=None), 'availability.watches[0]: reservation must be a nonempty identifier'),
 ])
 def test_config_diagnostics_identify_location_without_echoing_values(change, expected):
     raw = valid_config()
@@ -787,7 +792,7 @@ def test_json_keeps_independent_watch_scopes(context):
         assert saved_rows(ctx)['Y7QG']['notified'] is True
     assert c.config.apobj.notify.call_count == len(contexts)
     state = json.loads(Path(s.state_file).read_text())
-    assert len(state['watches']) == len(contexts)
+    assert len(state['scopes']) == len(contexts)
     assert a.username not in Path(s.state_file).read_text()
     assert b['bookingId'] not in Path(s.state_file).read_text()
 
@@ -797,7 +802,7 @@ def test_explicit_reset_rearms_only_selected_product(context):
     a, b, w, s, p = context
     path = Path(s.state_file)
     state = json.loads(path.read_text())
-    state['watches'][c.availability_scope(a, b, w, p)]['Y7QG']['notified'] = False
+    state['scopes'][c.availability_scope(a, b, w, p)]['Y7QG']['notified'] = False
     path.write_text(json.dumps(state))
     assert deliver(context, [state_result(), state_result(product='second')])
     assert c.config.apobj.notify.call_count == 2
