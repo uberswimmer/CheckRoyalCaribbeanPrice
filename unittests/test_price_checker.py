@@ -2181,6 +2181,28 @@ def test_load_config_objects_tolerates_null_sections(tmp_path):
     assert config.apobj is None
 
 
+def test_load_config_objects_accepts_windows_cp1252(tmp_path):
+    """The Linux container must be able to read legacy Windows/ANSI configs.
+
+    Reopening without an explicit fallback encoding just retries UTF-8 on
+    Linux and raises the same UnicodeDecodeError.
+    """
+    yaml_content = """
+    accountInfo:
+      - username: "test_user"
+        password: "password123"
+    reservationFriendlyNames:
+      '1234567': "Caf\u00e9 sailing"
+    """
+    config_file = tmp_path / "config.yaml"
+    config_file.write_bytes(yaml_content.encode("cp1252"))
+
+    with patch('CheckRoyalCaribbeanPrice.setup_hybrid_logging'):
+        config = load_config_objects(str(config_file))
+
+    assert config.reservation_names['1234567'] == "Caf\u00e9 sailing"
+
+
 def test_load_config_objects_expands_environment_variables(tmp_path, monkeypatch):
     """
     Ensure values that are exactly ${VAR_NAME} are replaced from the
