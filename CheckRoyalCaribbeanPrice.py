@@ -4023,7 +4023,7 @@ def availability_sailing_label(booking: dict) -> str:
     ship_name = booking.get("shipName")
     if not isinstance(ship_name, str) or not ship_name.strip():
         ship_name = str(booking.get("shipCode") or "Unknown ship")
-    return f"{config.format_date(sailing.strftime('%Y%m%d'))} {ship_name.strip()}"
+    return f"{ship_name.strip().upper()} ({sailing.isoformat()})"
 
 
 @contextmanager
@@ -4601,6 +4601,15 @@ def run_availability_only(settings: AvailabilitySettings, calendar_export: Optio
             found_reservations.update(str(b.get("bookingId")) for b in bookings if isinstance(b, dict))
             if calendar_export is not None:
                 calendar_export.capture(account, bookings)
+                for booking in bookings:
+                    if not isinstance(booking, dict):
+                        continue
+                    ship_code = booking.get("shipCode")
+                    sail_date = str(booking.get("sailDate", "")).replace("-", "")
+                    record = calendar_export.data.get("sailings", {}).get(f"{ship_code}{sail_date}", {})
+                    ship_name = record.get("shipName") if isinstance(record, dict) else None
+                    if isinstance(ship_name, str) and ship_name.strip():
+                        booking["shipName"] = ship_name
             healthy = process_availability_bookings(account, bookings, settings) and healthy
         except (AvailabilityUnknown, TypeError, AttributeError, ValueError):
             log_warn("[Availability] Account booking lookup failed; state not advanced")
@@ -5908,6 +5917,12 @@ def main() -> None:
                     calendar_export.capture(account_info, bookings, payment_tracker.rows)
                 if availability_enabled and account_info.is_royal:
                     if isinstance(bookings, list):
+                        for booking in bookings:
+                            if not isinstance(booking, dict):
+                                continue
+                            ship_code = booking.get("shipCode")
+                            if ship_code and not booking.get("shipName"):
+                                booking["shipName"] = ship_dictionary.get_ship(ship_code)
                         availability_found.update(str(b.get("bookingId")) for b in bookings if isinstance(b, dict))
                         deferred_availability.append((account_info, bookings))
                     else:
