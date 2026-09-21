@@ -138,9 +138,20 @@ Set `outputJsonFile` to change the output path; it defaults to `output-json-watc
 ## Reservation-release alerts
 
 Optional dining and entertainment release alerts use your booked Royal Caribbean
-sailings and existing Apprise settings. They check dated offering inventory,
-including free shows, independently of price thresholds. See
-[configuration, notification behavior, and limitations](reservation-alerts.md).
+sailings and existing Apprise settings. Configure a reservation once and enable
+automatic discovery for dining, shows, or both. They check dated offering inventory,
+including free shows, independently of price thresholds.
+
+```yaml
+availability:
+  dryRun: true
+  reservations:
+    - reservation: "1234567"
+      dining: true
+      shows: true
+```
+
+See [configuration, notification behavior, and limitations](reservation-alerts.md).
 
 ## Example Config with more options (not all of them)
 ```yaml
