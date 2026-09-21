@@ -162,6 +162,9 @@ def state_result(state='available', product='Y7QG'):
 
 def deliver(context, results=None, *, notify_on_reopen=False):
     a,b,category,s,p = context
+    # Generic persistence tests exercise arbitrary product IDs. Use category-wide
+    # discovery here so selective filtering does not intentionally prune them.
+    category = replace(category, products=None)
     return c.deliver_availability(
         s, a, b, category, notify_on_reopen,
         results if results is not None else [state_result()])
@@ -650,6 +653,21 @@ def test_skipped_type_change_preserves_previous_notification(context, monkeypatc
     assert deliver(ctx, notify_on_reopen=True)
     assert c.config.apobj.notify.call_count == 1
 
+def setup_combined_console(context, monkeypatch):
+    from types import SimpleNamespace
+    a, b, category, s, p = context
+    c.config.availability = s
+    c.config.accounts = [a]
+    c.config.prospective_cruises = [
+        SimpleNamespace(cruise_URL='https://example.invalid', paid_price=100)]
+    monkeypatch.setattr(c, 'login', Mock(side_effect=lambda account: account.access))
+    monkeypatch.setattr(c, 'get_profile', Mock(return_value=('OH', '', 0)))
+    monkeypatch.setattr(c, 'get_ship_dictionary_web', Mock())
+    monkeypatch.setattr(c, 'new_api_session', Mock(return_value=Mock()))
+    monkeypatch.setattr(c.time, 'sleep', Mock())
+    return a, b
+
+
 def test_availability_console_uses_status_colors_and_groups_times(context):
     a, b, w, s, p = context
     results = [c.AvailabilityResult('show', 'Show', 'available', 'inventory',
@@ -797,6 +815,7 @@ def test_compact_dining_alert_retains_party_and_table_caveats(context):
 def test_native_apprise_split_preserves_all_shows_and_retries_failed_delivery(context):
     apprise = pytest.importorskip('apprise')
     a, b, w, s, p = context
+    w = replace(w, products=None)
     notifier = apprise.Apprise()
     assert notifier.add('pover://' + 'a'*30 + '@' + 'b'*30 + '/?overflow=split')
     service = next(iter(notifier))
