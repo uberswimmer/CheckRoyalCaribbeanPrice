@@ -235,7 +235,7 @@ def test_capture_works_with_availability_only_and_all_watches_disabled(calendar,
     monkeypatch.setattr(c, 'login', Mock(return_value=account.access))
     monkeypatch.setattr(c, 'availability_json', Mock(return_value={'payload':{'profileBookings':[booking]}}))
     monkeypatch.setattr(c, 'process_availability_bookings', Mock(return_value=True))
-    availability = c.AvailabilitySettings((c.AvailabilityWatch('disabled','disabled','PRIVATE_BOOKING','show',enabled=False),), True, True)
+    availability = c.AvailabilitySettings((), dry_run=True, only=True)
     export = c.CalendarExport(settings)
     c.run_availability_only(availability, export)
     assert len(export.data['events']) == 5

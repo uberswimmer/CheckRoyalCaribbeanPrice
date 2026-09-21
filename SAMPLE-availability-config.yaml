@@ -4,46 +4,35 @@ accountInfo:
   - username: "YOUR_ROYAL_EMAIL"
     password: "YOUR_ROYAL_PASSWORD"
     cruiseLine: royalcaribbean
+
 # Add overflow=split to this URL to let Apprise split oversized alerts.
-# See AVAILABILITY-SETUP.md for ? versus & and per-account notification URLs.
 apprise:
   - url: "YOUR_APPRISE_URL"
 
 availability:
-  # This instance performs only availability checks, using the same login code.
+  # Fork-only execution switch for the dedicated availability container.
+  # Set false or omit when using availability alongside normal price checks.
   only: true
+
   # Start by comparing log output with Cruise Planner, then change to false.
   dryRun: true
-  # New JSON file; do not rename/reuse an old SQLite database. First run may re-alert.
-  stateFile: /app/data/reservation-availability.json
-  watches:
-    - id: entertainment
-      name: "Entertainment reservations"
-      reservation: "YOUR_ENTERTAINMENT_BOOKING_ID"
-      category: show
-      # Omit product to discover every show, including newly released shows.
-      mode: release
+
+  # The reservation-centric build uses a new state schema. Do not reuse the
+  # older reservation-availability.json file from the watch-centric build.
+  stateFile: /app/data/reservation-availability-v2.json
+
+  reservations:
+    - reservation: "YOUR_BOOKING_ID"
+      # true = automatically discover every matching pt_dining product.
+      dining: true
+      # true = automatically discover every matching pt_show product.
+      shows: true
       notifyOnReopen: false
 
-    - id: specialty-dining
-      name: "Specialty dining reservations"
-      reservation: "YOUR_DINING_BOOKING_ID"
-      category: dining
-      product: YOUR_DINING_PRODUCT_CODE
-      mode: release
-      notifyOnReopen: false
-
-    # Optional: enable a watch that also considers the configured party.
-    # With guests omitted, the party is passengersInStateroom for this booking.
-    # Existing reservations and limits can prevent party-mode alerts.
-    # - id: show-party
-    #   name: "Headliner for our party"
-    #   reservation: "YOUR_ENTERTAINMENT_BOOKING_ID"
-    #   category: show
-    #   product: YOUR_SHOW_PRODUCT_CODE
-    #   mode: party
-    #   guests:
-    #     - id: "GUEST_ID_1"
-    #       reservationId: "YOUR_ENTERTAINMENT_BOOKING_ID"
-    #     - id: "GUEST_ID_2"
-    #       reservationId: "LINKED_BOOKING_ID"
+    # Advanced example: monitor only selected dining products.
+    # - reservation: "ANOTHER_BOOKING_ID"
+    #   dining:
+    #     products:
+    #       - "UT_RAILDINNER"
+    #   shows: false
+    #   notifyOnReopen: false
