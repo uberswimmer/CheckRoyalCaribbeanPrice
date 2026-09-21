@@ -70,6 +70,16 @@ def test_release_ignores_personal_conflicts():
     assert r.times == ('2098-04-06T19:15:00', '2098-04-06T21:30:00')
 
 
+def test_royal_railway_contract_is_dining_and_active_flag_does_not_hide_inventory():
+    data = capture('railway')
+    assert data['payload']['productCode'] == 'UT_RAILDINNER'
+    assert data['payload']['categoryId'] == 'pt_dining'
+    assert all(offering['active'] is False for offering in data['payload']['offerings'])
+    result = evaluate('railway')
+    assert result.state == 'available'
+    assert result.times == ('2098-07-02T18:00:00', '2098-07-02T18:10:00')
+
+
 @pytest.mark.parametrize('status', ['inStock', 'outOfStock', 'OUT_OF_STOCK'])
 def test_zero_inventory_does_not_alert(status):
     data = capture('headliner')
@@ -356,6 +366,55 @@ def test_selective_dining_only_checks_configured_products(context, monkeypatch):
     assert c.process_availability_bookings(a, [b], settings)
     c.availability_eligibility.assert_called_once_with(
         a, b, 'dining', 'UT_RAILDINNER', p)
+
+
+def test_selective_product_absence_can_rearm_after_complete_catalog(context, monkeypatch):
+    a, b, _, s, p = context
+    category = c.AvailabilityCategory('dining', ('UT_RAILDINNER',))
+    settings = c.AvailabilitySettings((
+        c.AvailabilityReservation(str(b['bookingId']), (category,), True),
+    ), False, s.state_file)
+    ctx = (a, b, category, settings, p)
+    available = c.AvailabilityResult(
+        'UT_RAILDINNER', 'Royal Railway — Utopia Station', 'available',
+        'inventory', ('2099-10-10T20:30:00',))
+    assert deliver(ctx, [available], notify_on_reopen=True)
+    assert saved_rows(ctx)['UT_RAILDINNER']['notified'] is True
+
+    monkeypatch.setattr(c, 'availability_products', Mock(return_value=[]))
+    assert c.process_availability_bookings(a, [b], settings)
+    assert saved_rows(ctx)['UT_RAILDINNER'] == {
+        'last_state': 'unavailable', 'notified': False}
+
+    monkeypatch.setattr(c, 'availability_products', Mock(return_value=[
+        {'id': 'UT_RAILDINNER', 'title': 'Royal Railway — Utopia Station',
+         'type': {'id': 'pt_dining'}}]))
+    monkeypatch.setattr(c, 'availability_eligibility', Mock(return_value=capture('railway')))
+    assert c.process_availability_bookings(a, [b], settings)
+    assert c.config.apobj.notify.call_count == 2
+
+
+def test_narrowing_category_prunes_unselected_state_without_false_closure(context):
+    a, b, category, s, p = context
+    discovery = replace(category, products=None)
+    discovery_settings = replace(s, reservations=(
+        c.AvailabilityReservation(str(b['bookingId']), (discovery,)),))
+    discovery_ctx = (a, b, discovery, discovery_settings, p)
+    assert deliver(discovery_ctx, [
+        state_result(product='Y7QG'),
+        state_result(product='second'),
+    ])
+    assert set(saved_rows(discovery_ctx)) == {'Y7QG', 'second'}
+
+    selected = replace(category, products=('Y7QG',))
+    selected_settings = replace(s, reservations=(
+        c.AvailabilityReservation(str(b['bookingId']), (selected,)),))
+    assert c.deliver_availability(
+        selected_settings, a, b, selected, False, [state_result()],
+        catalog_products={'Y7QG'})
+    selected_ctx = (a, b, selected, selected_settings, p)
+    assert set(saved_rows(selected_ctx)) == {'Y7QG'}
+    assert c.config.apobj.notify.call_count == 1
 
 
 
