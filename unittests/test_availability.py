@@ -232,14 +232,14 @@ def test_aggregate_new_products_and_skip_acknowledged_ones(context):
     assert 'Third show:' in body and 'First show:' not in body and 'Second show:' not in body
 
 
-def test_scope_separates_accounts_sailings_and_watches(context):
-    a,b,w,s,p = context
-    base = c.availability_scope(a,b,w,p)
-    assert base != c.availability_scope(replace(a,username='another'),b,w,p)
-    assert base != c.availability_scope(a,dict(b,sailDate='20991017'),w,p)
-    assert base != c.availability_scope(a,b,replace(w,id='different'),p)
-    assert base == c.availability_scope(a,b,w,(('new-guest','booking-1'),))
 
+def test_scope_separates_accounts_sailings_and_categories(context):
+    a,b,category,s,p = context
+    base = c.availability_scope(a,b,category.category)
+    assert base != c.availability_scope(replace(a,username='another'),b,category.category)
+    assert base != c.availability_scope(a,dict(b,sailDate='20991017'),category.category)
+    assert base != c.availability_scope(a,b,'dining')
+    assert base == c.availability_scope(a,b,category.category)
 
 def test_individual_product_failure_does_not_block_other_shows(context,monkeypatch):
     a,b,w,s,p = context
@@ -359,15 +359,15 @@ def test_selective_dining_only_checks_configured_products(context, monkeypatch):
         a, b, 'dining', 'UT_RAILDINNER', p)
 
 
+
 def test_config_defaults_and_normalization():
     assert c.parse_availability_config(None) is None
-    s = c.parse_availability_config(valid_config())
-    assert s.dry_run
-    assert s.watches[0].reservation == '123'
-    assert s.watches[0].product is None
-    assert s.state_file == 'data/reservation-availability.json'
-    assert c.AvailabilitySettings(s.watches).state_file == s.state_file
-
+    settings = c.parse_availability_config(valid_config())
+    assert settings.dry_run
+    assert settings.reservations[0].reservation == '123'
+    assert settings.reservations[0].categories == (c.AvailabilityCategory('show'),)
+    assert settings.state_file == 'data/reservation-availability.json'
+    assert c.AvailabilitySettings(settings.reservations).state_file == settings.state_file
 
 @pytest.mark.parametrize('mutation',[
     lambda d:d.update(only='false'),
@@ -375,14 +375,13 @@ def test_config_defaults_and_normalization():
     lambda d:d.update(dryrun=False),
     lambda d:d.update(stateFile=':memory:'),
     lambda d:d.update(watches=[]),
-    lambda d:d['scopes'].append(copy.deepcopy(d['scopes'][0])),
-    lambda d:d['scopes'][0].update(category='dining'),
-    lambda d:d['scopes'][0].update(category='pt_show'),
-    lambda d:d['scopes'][0].update(mode='available'),
-    lambda d:d['scopes'][0].update(reservation=None),
-    lambda d:d['scopes'][0].update(enabled='false'),
-    lambda d:d['scopes'][0].update(guests=[]),
-    lambda d:d['scopes'][0].update(guests=[{'id':'guest'}]),
+    lambda d:d.update(reservations=[]),
+    lambda d:d['reservations'].append(copy.deepcopy(d['reservations'][0])),
+    lambda d:d['reservations'][0].update(mod='available'),
+    lambda d:d['reservations'][0].update(reservation=None),
+    lambda d:d['reservations'][0].update(shows='true'),
+    lambda d:d['reservations'][0].update(shows={'products': []}),
+    lambda d:d['reservations'][0].update(shows={'products': ['A', 'A']}),
 ])
 def test_invalid_config_rejected(mutation):
     data = valid_config()
@@ -502,10 +501,12 @@ def test_booking_path_returns_snapshot_without_running_availability_early(contex
 
 
 @pytest.mark.parametrize('dry_run', [True, False])
+
 def test_discovery_skips_other_category_without_error_or_notification(context, monkeypatch, dry_run):
-    # pt_onboardActivities is confirmed by the sanitized Star console output.
-    a, b, w, s, p = context
-    w = replace(w, product=None)
+    a, b, category, s, p = context
+    category = replace(category, products=None)
+    reservation = c.AvailabilityReservation(str(b['bookingId']), (category,))
+    settings = replace(s, reservations=(reservation,), dry_run=dry_run)
     products = [
         {'id': 'escape-1', 'title': 'Escape room', 'type': {'id': 'pt_onboardActivities'}},
         {'id': 'dinner-1', 'title': 'Experience dinner', 'type': {'id': 'pt_dining'}},
@@ -513,7 +514,7 @@ def test_discovery_skips_other_category_without_error_or_notification(context, m
     monkeypatch.setattr(c, 'availability_products', Mock(return_value=products))
     eligibility = Mock(side_effect=AssertionError('must not query another product type'))
     monkeypatch.setattr(c, 'availability_eligibility', eligibility)
-    assert c.process_availability_bookings(a, [b], replace(s, watches=(w,), dry_run=dry_run))
+    assert c.process_availability_bookings(a, [b], settings)
     eligibility.assert_not_called()
     c.config.apobj.notify.assert_not_called()
     assert any('2 other-category products skipped' in call.args[0] for call in c.log.call_args_list)
@@ -522,72 +523,67 @@ def test_discovery_skips_other_category_without_error_or_notification(context, m
 
 
 def test_mixed_catalog_still_checks_and_notifies_matching_show(context, monkeypatch):
-    a, b, w, s, p = context
+    a, b, category, s, p = context
+    product = category.products[0]
     products = [
         {'id': 'escape-1', 'title': 'Escape room', 'type': {'id': 'pt_onboardActivities'}},
-        {'id': w.product, 'title': 'Headliner', 'type': {'id': 'pt_show'}},
+        {'id': product, 'title': 'Headliner', 'type': {'id': 'pt_show'}},
     ]
     monkeypatch.setattr(c, 'availability_products', Mock(return_value=products))
     eligibility = Mock(return_value=capture('headliner'))
     monkeypatch.setattr(c, 'availability_eligibility', eligibility)
-    discovery = replace(w, product=None)
-    assert c.process_availability_bookings(a, [b], replace(s, watches=(discovery,)))
-    eligibility.assert_called_once_with(a, b, discovery, w.product, p)
+    discovery = replace(category, products=None)
+    settings = replace(s, reservations=(
+        c.AvailabilityReservation(str(b['bookingId']), (discovery,)),))
+    assert c.process_availability_bookings(a, [b], settings)
+    eligibility.assert_called_once_with(a, b, 'show', product, p)
     c.config.apobj.notify.assert_called_once()
     assert 'Headliner:' in c.config.apobj.notify.call_args.kwargs['body']
     assert 'Escape room' not in c.config.apobj.notify.call_args.kwargs['body']
 
 
 def test_explicit_product_type_mismatch_stays_unknown(context, monkeypatch):
-    a, b, w, s, p = context
+    a, b, category, s, p = context
+    product = category.products[0]
     monkeypatch.setattr(c, 'availability_products', Mock(return_value=[
-        {'id': w.product, 'title': 'Other type', 'type': {'id': 'pt_activity'}}]))
+        {'id': product, 'title': 'Other type', 'type': {'id': 'pt_activity'}}]))
     eligibility = Mock(side_effect=AssertionError('must not query another product type'))
     monkeypatch.setattr(c, 'availability_eligibility', eligibility)
     assert not c.process_availability_bookings(a, [b], s)
     eligibility.assert_not_called()
     c.config.apobj.notify.assert_not_called()
 
-
 @pytest.mark.parametrize('product_type', [None, {}, [], 'pt_show', {'id': None}, {'id': 'pt_'}, {'id': 'invalid'}])
+
 def test_malformed_type_does_not_block_valid_show_or_hide_error(context, monkeypatch, product_type):
-    a, b, w, s, p = context
+    a, b, category, s, p = context
+    product = category.products[0]
     monkeypatch.setattr(c, 'availability_products', Mock(return_value=[
         {'id': 'broken', 'title': 'Malformed', 'type': product_type},
-        {'id': w.product, 'title': 'Headliner', 'type': {'id': 'pt_show'}}]))
+        {'id': product, 'title': 'Headliner', 'type': {'id': 'pt_show'}}]))
     monkeypatch.setattr(c, 'availability_eligibility', Mock(return_value=capture('headliner')))
-    assert not c.process_availability_bookings(a, [b], replace(s, watches=(replace(w, product=None),)))
+    discovery = replace(category, products=None)
+    settings = replace(s, reservations=(
+        c.AvailabilityReservation(str(b['bookingId']), (discovery,)),))
+    assert not c.process_availability_bookings(a, [b], settings)
     c.config.apobj.notify.assert_called_once()
     assert 'Headliner:' in c.config.apobj.notify.call_args.kwargs['body']
 
 
 def test_skipped_type_change_preserves_previous_notification(context, monkeypatch):
-    a, b, w, s, p = context
-    w = replace(w, product=None, notify_on_reopen=True)
-    ctx = a, b, w, s, p
-    deliver(ctx)
+    a, b, category, s, p = context
+    discovery = replace(category, products=None)
+    settings = replace(s, reservations=(
+        c.AvailabilityReservation(str(b['bookingId']), (discovery,), True),))
+    ctx = a, b, discovery, settings, p
+    assert deliver(ctx, notify_on_reopen=True)
     original = Path(s.state_file).read_bytes()
     monkeypatch.setattr(c, 'availability_products', Mock(return_value=[
         {'id': 'Y7QG', 'title': 'Changed type', 'type': {'id': 'pt_activity'}}]))
-    assert c.process_availability_bookings(a, [b], replace(s, watches=(w,)))
+    assert c.process_availability_bookings(a, [b], settings)
     assert Path(s.state_file).read_bytes() == original
-    deliver(ctx)
+    assert deliver(ctx, notify_on_reopen=True)
     assert c.config.apobj.notify.call_count == 1
-
-
-def setup_combined_console(context, monkeypatch):
-    from types import SimpleNamespace
-    a, b, w, s, p = context
-    c.config.availability = s
-    c.config.accounts = [a]
-    c.config.prospective_cruises = [SimpleNamespace(cruise_URL='https://example.invalid', paid_price=100)]
-    monkeypatch.setattr(c, 'login', Mock(side_effect=lambda account: account.access))
-    monkeypatch.setattr(c, 'get_profile', Mock(return_value=('OH', '', 0)))
-    monkeypatch.setattr(c, 'get_ship_dictionary_web', Mock())
-    monkeypatch.setattr(c, 'new_api_session', Mock(return_value=Mock()))
-    monkeypatch.setattr(c.time, 'sleep', Mock())
-    return a, b
-
 
 def test_availability_console_uses_status_colors_and_groups_times(context):
     a, b, w, s, p = context
@@ -604,41 +600,41 @@ def test_availability_console_uses_status_colors_and_groups_times(context):
     assert not any('2099-10-10T' in line for line in lines)
 
 
-def test_catalog_reused_between_watches_but_eligibility_and_later_runs_are_fresh(context, monkeypatch):
-    a, b, w, s, p = context
-    second = replace(w, id='second')
-    settings = replace(s, dry_run=True, watches=(w, second))
-    catalog = Mock(return_value=[{'id':w.product, 'title':'Show', 'type':{'id':'pt_show'}}])
+
+def test_catalog_fetched_once_per_category_per_run_and_later_runs_are_fresh(context, monkeypatch):
+    a, b, category, s, p = context
+    settings = replace(s, dry_run=True)
+    catalog = Mock(return_value=[
+        {'id': category.products[0], 'title': 'Show', 'type': {'id': 'pt_show'}}])
     monkeypatch.setattr(c, 'availability_products', catalog)
     eligibility = Mock(return_value=capture('headliner'))
     monkeypatch.setattr(c, 'availability_eligibility', eligibility)
     for _ in range(2):
         assert c.process_availability_bookings(a, [b], settings)
     assert catalog.call_count == 2
-    assert eligibility.call_count == 4
-    assert eligibility.call_args_list[0].args[2].id == w.id
-    assert eligibility.call_args_list[1].args[2].id == 'second'
+    assert eligibility.call_count == 2
 
 
-def test_catalog_failure_is_shared_within_run_and_retried_next_run(context, monkeypatch):
-    a, b, w, s, p = context
-    settings = replace(s, watches=(w, replace(w, id='second')))
-    deliver(context)
+def test_catalog_failure_is_retried_next_run(context, monkeypatch):
+    a, b, category, s, p = context
+    assert deliver(context)
     catalog = Mock(side_effect=[c.AvailabilityUnknown('temporary error'), []])
     monkeypatch.setattr(c, 'availability_products', catalog)
-    assert not c.process_availability_bookings(a, [b], settings)
-    catalog.assert_called_once()
-    deliver(context)
+    assert not c.process_availability_bookings(a, [b], s)
+    assert catalog.call_count == 1
+    assert deliver(context)
     c.config.apobj.notify.assert_called_once()
-    assert c.process_availability_bookings(a, [b], settings)
+    assert c.process_availability_bookings(a, [b], s)
     assert catalog.call_count == 2
 
 
-def test_catalog_cache_isolated_by_account_booking_and_category(context, monkeypatch):
-    a, b, w, s, p = context
-    settings = replace(s, dry_run=True, watches=(w,
-        replace(w, id='other-booking', reservation='booking-2'),
-        replace(w, id='dining', category='dining', product='SAMPLE_DINING')))
+def test_reservations_and_categories_fetch_independently(context, monkeypatch):
+    a, b, category, s, p = context
+    dining = c.AvailabilityCategory('dining')
+    settings = c.AvailabilitySettings((
+        c.AvailabilityReservation('booking-1', (replace(category, products=None), dining)),
+        c.AvailabilityReservation('booking-2', (replace(category, products=None),)),
+    ), True, s.state_file)
     other_booking = dict(b, bookingId='booking-2')
     catalog = Mock(return_value=[])
     monkeypatch.setattr(c, 'availability_products', catalog)
@@ -646,13 +642,16 @@ def test_catalog_cache_isolated_by_account_booking_and_category(context, monkeyp
         assert c.process_availability_bookings(account, [b, other_booking], settings)
     assert catalog.call_count == 6
 
-
 @pytest.mark.parametrize('change, expected', [
     (lambda d:d.update(dryrun=True), 'availability: unrecognized configuration key(s): dryrun'),
-    (lambda d:d['scopes'][0].update(mod='release'), 'availability.watches[0]: unrecognized configuration key(s): mod'),
-    (lambda d:d['scopes'][0].update(enabled='false'), 'availability.watches[0]: enabled must be true or false'),
-    (lambda d:d['scopes'][0].update(guests=[{'id':'test','reservationID':'SECRET_VALUE'}]), 'availability.watches[0]: unrecognized configuration key(s): guests'),
-    (lambda d:d['scopes'][0].update(reservation=None), 'availability.watches[0]: reservation must be a nonempty identifier'),
+    (lambda d:d['reservations'][0].update(mod='release'),
+     'availability.reservations[0]: unrecognized configuration key(s): mod'),
+    (lambda d:d['reservations'][0].update(shows='false'),
+     'availability.reservations[0]: shows must be true, false, or a mapping'),
+    (lambda d:d['reservations'][0].update(shows={'guests':[{'id':'SECRET_VALUE'}]}),
+     'availability.reservations[0].shows: unrecognized configuration key(s): guests'),
+    (lambda d:d['reservations'][0].update(reservation=None),
+     'availability.reservations[0]: reservation must be a nonempty identifier'),
 ])
 def test_config_diagnostics_identify_location_without_echoing_values(change, expected):
     raw = valid_config()
@@ -809,13 +808,17 @@ def test_unknown_and_unchanged_json_state_are_not_rewritten(context, monkeypatch
     c.config.apobj.notify.assert_called_once()
 
 
-def test_json_keeps_independent_watch_scopes(context):
-    a, b, w, s, p = context
-    contexts = [context, (replace(a, username='second@example.invalid'), b, w, s, p),
-                (a, dict(b, sailDate='20991017'), w, s, p),
-                (a, b, replace(w, id='another-watch'), s, p),
-                (a, b, replace(w, category='dining'), s, p),
-                (a, dict(b, bookingId='different'), replace(w, reservation='different'), s, p)]
+
+def test_json_keeps_independent_category_scopes(context):
+    a, b, category, s, p = context
+    dining = replace(category, category='dining')
+    contexts = [
+        context,
+        (replace(a, username='second@example.invalid'), b, category, s, p),
+        (a, dict(b, sailDate='20991017'), category, s, p),
+        (a, b, dining, s, p),
+        (a, dict(b, bookingId='different'), category, s, p),
+    ]
     for ctx in contexts:
         assert deliver(ctx)
     for ctx in contexts:
@@ -830,15 +833,14 @@ def test_json_keeps_independent_watch_scopes(context):
 
 def test_explicit_reset_rearms_only_selected_product(context):
     assert deliver(context, [state_result(), state_result(product='second')])
-    a, b, w, s, p = context
+    a, b, category, s, p = context
     path = Path(s.state_file)
     state = json.loads(path.read_text())
-    state['scopes'][c.availability_scope(a, b, w, p)]['Y7QG']['notified'] = False
+    state['scopes'][c.availability_scope(a, b, category.category)]['Y7QG']['notified'] = False
     path.write_text(json.dumps(state))
     assert deliver(context, [state_result(), state_result(product='second')])
     assert c.config.apobj.notify.call_count == 2
     assert saved_rows(context)['second']['notified'] is True
-
 
 def test_lock_contention_reports_failure_without_changing_state(context, monkeypatch):
     a, b, w, s, p = context
