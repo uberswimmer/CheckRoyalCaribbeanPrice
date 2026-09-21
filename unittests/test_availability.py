@@ -427,7 +427,7 @@ def test_config_defaults_and_normalization():
     assert settings.dry_run
     assert settings.reservations[0].reservation == '123'
     assert settings.reservations[0].categories == (c.AvailabilityCategory('show'),)
-    assert settings.state_file == 'data/reservation-availability.json'
+    assert settings.state_file == 'data/reservation-availability-v2.json'
     assert c.AvailabilitySettings(settings.reservations).state_file == settings.state_file
 
     assert settings.only is False
