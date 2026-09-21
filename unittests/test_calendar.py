@@ -234,11 +234,14 @@ def test_capture_works_with_availability_only_and_all_watches_disabled(calendar,
     c.config.accounts = [account]
     monkeypatch.setattr(c, 'login', Mock(return_value=account.access))
     monkeypatch.setattr(c, 'availability_json', Mock(return_value={'payload':{'profileBookings':[booking]}}))
-    monkeypatch.setattr(c, 'process_availability_bookings', Mock(return_value=True))
+    process = Mock(return_value=True)
+    monkeypatch.setattr(c, 'process_availability_bookings', process)
     availability = c.AvailabilitySettings((), dry_run=True, only=True)
     export = c.CalendarExport(settings)
     c.run_availability_only(availability, export)
     assert len(export.data['events']) == 5
+    processed_bookings = process.call_args.args[1]
+    assert processed_bookings[0]['shipName'] == 'Example Ship'
     account.access.session.close.assert_called_once()
 
 
