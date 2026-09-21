@@ -12,24 +12,21 @@ cart. Celebrity is not supported.
 
 ## Configuration
 
-Add this block to your existing configuration, replacing the example reservation
-numbers and dining product code. The reservations must be linked to one of your
-configured Royal Caribbean accounts.
+Add this block to your existing configuration. Each entry identifies a booked
+reservation and the categories to discover automatically. The reservation must be
+linked to one of your configured Royal Caribbean accounts.
 
 ```yaml
 availability:
   dryRun: true
   stateFile: "data/reservation-availability.json"
-  watches:
-    - id: "summer-shows"
-      name: "Summer cruise shows"
-      reservation: "1234567"
-      category: "show"
-    - id: "winter-dining"
-      name: "Winter cruise dining"
-      reservation: "7654321"
-      category: "dining"
-      product: "YOUR_DINING_PRODUCT_CODE"
+  reservations:
+    - reservation: "1234567"
+      dining: true
+      shows: true
+    - reservation: "7654321"
+      dining: true
+      shows: false
       notifyOnReopen: false
 ```
 
@@ -42,15 +39,18 @@ looks correct, and configure Apprise to receive them.
 
 | Setting | Behavior |
 | --- | --- |
-| `id` | Required, stable, unique watch identifier. Changing it starts a fresh watch. |
-| `name` | Optional label; defaults to `id`. |
-| `reservation` | Required booking number. Add separate watches for multiple cruises. |
-| `category: show` | Discover all show products for the booking; optionally specify `product` to watch one. |
-| `category: dining` | Requires an exact `product` code from that sailing's Cruise Planner product URL, as with existing price watches. Codes and support can differ by ship and product. |
-| `enabled: false` | Skip this watch; defaults to `true`. |
-| `notifyOnReopen: false` | Default: alert once per product in this watch, account, booking and sailing. Newly discovered products can trigger later alerts. |
+| `reservation` | Required booking number. Add one entry per cruise you want to monitor. |
+| `dining: true` | Discover dining products for the sailing and check each matching `pt_dining` product for dated inventory. Defaults to `false`. |
+| `shows: true` | Discover show products for the sailing and check each matching `pt_show` product for dated inventory. Defaults to `false`. |
+| `notifyOnReopen: false` | Default: alert once per discovered product, account, booking and category. |
 | `notifyOnReopen: true` | Also alert after a confirmed closure and subsequent reopening. Failed or uncertain checks do not re-arm an alert. |
 | `stateFile` | JSON file used to suppress repeats across runs and restarts. Defaults to `data/reservation-availability.json`. |
+
+At least one of `dining` or `shows` must be true for each reservation. Product
+codes are not required. The tracker reads the sailing's category catalog, filters
+to products whose returned type matches the requested category, and then checks
+dated offering inventory for each matching product. Known products from other
+categories are skipped rather than queried with the wrong category.
 
 The first live check alerts for products that are already available. An alert is
 about a product's release, not every additional session or change in its times.
@@ -61,7 +61,7 @@ not every dining product exposes usable dated offerings through this endpoint.
 
 ## Notifications and state
 
-Newly available products are grouped into one alert per watch. Each product
+Newly available products are grouped into one alert per reservation category. Each product
 previews up to six times, grouped by date using `dateDisplayFormat`, with a link
 to the sailing's Cruise Planner category. The console shows all returned times.
 Times preserve Royal's wall-clock values; no timezone conversion is performed.
@@ -72,10 +72,10 @@ Keep the state file on persistent storage. In Docker, mount a writable directory
 at `/app/data`, or configure an absolute `stateFile` path in an existing persistent
 mount. The file is separate from cabin-alert JSON and optional price-history
 SQLite storage; no additional database is required. Do not point these features
-at the same file. Deleting the reservation state or changing a watch's identity
+at the same file. Deleting the reservation state or changing a reservation/category selection
 can repeat previously delivered alerts.
 
-State stores a hashed account/booking/watch context, product IDs, last confirmed
+State stores a hashed account/booking/category context, product IDs, last confirmed
 availability and notification acknowledgements. It does not store credentials,
 guest names or raw API responses. Notification links contain booking context;
 handle them as personal information.
