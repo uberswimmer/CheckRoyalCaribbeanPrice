@@ -21,7 +21,7 @@ availability:
   # Fork-only: set only: true for the dedicated availability container.
   only: true
   dryRun: true
-  stateFile: "data/reservation-availability-v2.json"
+  stateFile: "data/reservation-availability.json"
   reservations:
     - reservation: "1234567"
       dining: true
@@ -51,7 +51,7 @@ looks correct, and configure Apprise to receive them.
 | `shows: {products: [...]}` | Optional advanced form to restrict show checks to selected product IDs. |
 | `notifyOnReopen: false` | Default: alert once per discovered product, account, booking and category. |
 | `notifyOnReopen: true` | Also alert after a confirmed closure and subsequent reopening. Failed or uncertain checks do not re-arm an alert. |
-| `stateFile` | JSON file used to suppress repeats across runs and restarts. Defaults to `data/reservation-availability-v2.json`. |
+| `stateFile` | JSON file used to suppress repeats across runs and restarts. Defaults to `data/reservation-availability.json`. |
 
 At least one of `dining` or `shows` must be enabled for each reservation. Product
 codes are not required for normal use. The tracker reads the sailing's category
@@ -77,7 +77,7 @@ Times preserve Royal's wall-clock values; no timezone conversion is performed.
 For large notifications, Apprise's `overflow=split` URL option can avoid message
 truncation by services with small limits.
 
-The previous fork build used a watch-scoped JSON schema at `reservation-availability.json`. This reservation/category build uses a different scope identity, so point `stateFile` at a new path such as `/app/data/reservation-availability-v2.json`; the first live run may alert for products that are already available.
+The previous fork build used a watch-scoped JSON schema at `reservation-availability.json`. This reservation/category build uses a different scope identity. Stop the checker and delete the existing state file before the first run of this build; it will recreate `/app/data/reservation-availability.json` using the new schema. The first live run may alert for products that are already available.
 
 Keep the state file on persistent storage. In Docker, mount a writable directory
 at `/app/data`, or configure an absolute `stateFile` path in an existing persistent
