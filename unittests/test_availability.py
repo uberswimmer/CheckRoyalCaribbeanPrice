@@ -597,7 +597,7 @@ def test_availability_console_uses_status_colors_and_groups_times(context):
                ('2099-10-10T19:15:00', '2099-10-10T21:30:00')),
                c.AvailabilityResult('closed', 'Closed', 'unavailable', 'no offerings'),
                c.AvailabilityResult('error', 'Error', 'unknown', 'request failed')]
-    assert not c.deliver_availability(replace(s, dry_run=True), a, b, w, p, results)
+    assert not c.deliver_availability(replace(s, dry_run=True), a, b, w, False, results)
     lines = [call.args[0] for call in c.log.call_args_list]
     assert any(c.GREEN + 'Show: Available' in line for line in lines)
     assert any(c.YELLOW + 'Closed: Unavailable' in line for line in lines)
@@ -703,7 +703,7 @@ def test_compact_alert_groups_dates_separates_shows_and_keeps_one_booking_link(c
     results = [c.AvailabilityResult('one', 'Comedy', 'available', 'inventory',
                ('2099-10-10T20:30:00-04:00', '2099-10-10T22:30:00-04:00', '2099-10-11T19:00:00-04:00')),
                c.AvailabilityResult('two', 'Ice Show', 'available', 'inventory', ('2099-10-12T21:15:00',))]
-    assert c.deliver_availability(s, a, b, w, p, results)
+    assert c.deliver_availability(s, a, b, w, False, results)
     body = c.config.apobj.notify.call_args.kwargs['body']
     assert '\n\nComedy:\n2099-10-10: 20:30, 22:30\n2099-10-11: 19:00' in body
     assert '\n\nIce Show:\n2099-10-12: 21:15' in body
@@ -717,7 +717,7 @@ def test_compact_alert_groups_dates_separates_shows_and_keeps_one_booking_link(c
 def test_compact_alert_retains_preview_limit_but_console_has_all_times(context):
     a, b, w, s, p = context
     times = tuple(f'2099-10-10T{hour:02d}:00:00' for hour in range(10, 18))
-    assert c.deliver_availability(s, a, b, w, p,
+    assert c.deliver_availability(s, a, b, w, False,
         [c.AvailabilityResult('one', 'Show', 'available', 'inventory', times)])
     body = c.config.apobj.notify.call_args.kwargs['body']
     assert '(+2 more times in Cruise Planner)' in body
@@ -728,7 +728,7 @@ def test_compact_alert_retains_preview_limit_but_console_has_all_times(context):
 def test_compact_dining_alert_retains_party_and_table_caveats(context):
     a, b, w, s, p = context
     w = replace(w, category='dining')
-    assert c.deliver_availability(s, a, b, w, p, [state_result()])
+    assert c.deliver_availability(s, a, b, w, False, [state_result()])
     body = c.config.apobj.notify.call_args.kwargs['body']
     assert 'personal conflicts not checked' in body
     assert 'pt_dining?' in body and 'pt_show' not in body
@@ -747,11 +747,11 @@ def test_native_apprise_split_preserves_all_shows_and_retries_failed_delivery(co
     results = [c.AvailabilityResult(str(i), f'Show {i:02d} with an example title', 'available', 'inventory',
                                    ('2099-10-10T20:30:00', '2099-10-11T22:30:00')) for i in range(30)]
     service.send.side_effect = lambda **kwargs: 'Show 00' not in kwargs['body']
-    assert not c.deliver_availability(s, a, b, w, p, results)
+    assert not c.deliver_availability(s, a, b, w, False, results)
     assert all(row['notified'] is False for row in saved_rows(context).values())
     service.send.reset_mock()
     service.send.side_effect = None
-    assert c.deliver_availability(s, a, b, w, p, results)
+    assert c.deliver_availability(s, a, b, w, False, results)
     chunks = [call.kwargs['body'] for call in service.send.call_args_list]
     assert len(chunks) > 1
     assert all(len(chunk) <= service.body_maxlen for chunk in chunks)
@@ -759,22 +759,23 @@ def test_native_apprise_split_preserves_all_shows_and_retries_failed_delivery(co
     assert all(f'Show {i:02d}' in delivered for i in range(30))
     assert 'category/pt_show?' in delivered
     service.send.reset_mock()
-    assert c.deliver_availability(s, a, b, w, p, results)
+    assert c.deliver_availability(s, a, b, w, False, results)
     service.send.assert_not_called()
 
 
 @pytest.mark.parametrize('contents', [
     b'', b'not json', b'null', b'[]', b'{}', b'{', b'\xff', b'SQLite format 3\x00',
-    b'{"version":2,"watches":{}}', b'{"version":true,"watches":{}}',
-    b'{"version":1,"watches":[]}', b'{"version":1,"watches":{},"unexpected":0}',
-    b'{"version":1,"watches":{"scope":null}}',
-    b'{"version":1,"watches":{"":{"product":{"last_state":"available","notified":true}}}}',
-    b'{"version":1,"watches":{"scope":{"":{}}}}',
-    b'{"version":1,"watches":{"scope":{"product":null}}}',
-    b'{"version":1,"watches":{"scope":{"product":{"last_state":"unknown","notified":true}}}}',
-    b'{"version":1,"watches":{"scope":{"product":{"last_state":"available","notified":1}}}}',
-    b'{"version":1,"watches":{"scope":{"product":{"last_state":"available","notified":"false"}}}}',
-    b'{"version":1,"watches":{"scope":{"product":{"last_state":"available"}}}}',
+    b'{"version":1,"watches":{}}',
+    b'{"version":2,"scopes":{}}', b'{"version":true,"scopes":{}}',
+    b'{"version":1,"scopes":[]}', b'{"version":1,"scopes":{},"unexpected":0}',
+    b'{"version":1,"scopes":{"scope":null}}',
+    b'{"version":1,"scopes":{"":{"product":{"last_state":"available","notified":true}}}}',
+    b'{"version":1,"scopes":{"scope":{"":{}}}}',
+    b'{"version":1,"scopes":{"scope":{"product":null}}}',
+    b'{"version":1,"scopes":{"scope":{"product":{"last_state":"unknown","notified":true}}}}',
+    b'{"version":1,"scopes":{"scope":{"product":{"last_state":"available","notified":1}}}}',
+    b'{"version":1,"scopes":{"scope":{"product":{"last_state":"available","notified":"false"}}}}',
+    b'{"version":1,"scopes":{"scope":{"product":{"last_state":"available"}}}}',
 ])
 def test_invalid_json_state_is_preserved_without_sending(context, contents):
     path = Path(context[3].state_file)
@@ -927,7 +928,7 @@ def test_release_failure_finishes_price_outputs_closes_sessions_and_sets_partial
 @pytest.mark.parametrize('enabled', [False, True])
 def test_disabled_release_checks_make_no_extra_requests(context, monkeypatch, enabled):
     a, b = setup_combined_console(context, monkeypatch)
-    c.config.availability = replace(context[3], watches=(replace(context[2], enabled=False),)) if enabled else None
+    c.config.availability = replace(context[3], reservations=()) if enabled else None
     monkeypatch.setattr(c, 'get_voyages', Mock(return_value=[b]))
     monkeypatch.setattr(c, 'get_cruise_price', Mock())
     release = Mock(side_effect=AssertionError('disabled feature called'))
@@ -935,7 +936,6 @@ def test_disabled_release_checks_make_no_extra_requests(context, monkeypatch, en
     c.main()
     release.assert_not_called()
     c.history.finish_run.assert_called_once_with('ok')
-
 
 def test_booking_watch_resolves_across_accounts(context, monkeypatch):
     a, b = setup_combined_console(context, monkeypatch)
