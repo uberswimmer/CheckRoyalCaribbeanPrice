@@ -70,6 +70,8 @@ not every dining product exposes usable dated offerings through this endpoint.
 
 ## Notifications and state
 
+Console and web-report output are grouped as account → sailing → category → product. The sailing heading uses the configured date format and the full ship name when Royal includes it in the booking payload, falling back to the ship code without making an extra display-only request. Apprise transport-success messages are suppressed during availability notification delivery; warnings and failures remain visible.
+
 Newly available products are grouped into one alert per reservation category. Each product
 previews up to six times, grouped by date using `dateDisplayFormat`, with a link
 to the sailing's Cruise Planner category. The console shows all returned times.
