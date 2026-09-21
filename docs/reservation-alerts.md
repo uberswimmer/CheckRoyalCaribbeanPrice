@@ -25,7 +25,9 @@ availability:
       dining: true
       shows: true
     - reservation: "7654321"
-      dining: true
+      dining:
+        products:
+          - "UT_RAILDINNER"
       shows: false
       notifyOnReopen: false
 ```
@@ -41,16 +43,20 @@ looks correct, and configure Apprise to receive them.
 | --- | --- |
 | `reservation` | Required booking number. Add one entry per cruise you want to monitor. |
 | `dining: true` | Discover dining products for the sailing and check each matching `pt_dining` product for dated inventory. Defaults to `false`. |
+| `dining: {products: [...]}` | Check only the listed dining product IDs. The catalog is still read first so a configured product that disappears from a complete catalog can be treated as unavailable. |
 | `shows: true` | Discover show products for the sailing and check each matching `pt_show` product for dated inventory. Defaults to `false`. |
+| `shows: {products: [...]}` | Optional advanced form to restrict show checks to selected product IDs. |
 | `notifyOnReopen: false` | Default: alert once per discovered product, account, booking and category. |
 | `notifyOnReopen: true` | Also alert after a confirmed closure and subsequent reopening. Failed or uncertain checks do not re-arm an alert. |
 | `stateFile` | JSON file used to suppress repeats across runs and restarts. Defaults to `data/reservation-availability.json`. |
 
-At least one of `dining` or `shows` must be true for each reservation. Product
-codes are not required. The tracker reads the sailing's category catalog, filters
-to products whose returned type matches the requested category, and then checks
-dated offering inventory for each matching product. Known products from other
-categories are skipped rather than queried with the wrong category.
+At least one of `dining` or `shows` must be enabled for each reservation. Product
+codes are not required for normal use. The tracker reads the sailing's category
+catalog, filters to products whose returned type matches the requested category,
+and then checks dated offering inventory for each matching product. Royal's Dining
+catalog can also contain packages and onboard activities; those are skipped unless
+their returned type is exactly `pt_dining`. A selected product that is present with
+an unexpected type is treated as unknown rather than closed.
 
 The first live check alerts for products that are already available. An alert is
 about a product's release, not every additional session or change in its times.
@@ -75,10 +81,12 @@ SQLite storage; no additional database is required. Do not point these features
 at the same file. Deleting the reservation state or changing a reservation/category selection
 can repeat previously delivered alerts.
 
-State stores a hashed account/booking/category context, product IDs, last confirmed
+State stores a hashed account/booking/category scope, product IDs, last confirmed
 availability and notification acknowledgements. It does not store credentials,
-guest names or raw API responses. Notification links contain booking context;
-handle them as personal information.
+guest names or raw API responses. Narrowing a category from automatic discovery
+to selected products prunes unrelated saved products instead of marking them
+unavailable. Notification links contain booking context; handle them as personal
+information.
 
 A sidecar lock covers reading state, deciding/sending notifications and atomically
 replacing the JSON file. Invalid state or lock contention is reported without
@@ -101,5 +109,9 @@ interpretation, catalog pagination, per-account isolation, failed notification
 retries, JSON validation, concurrent processes, atomic-save failures and normal
 price-report completion. They do not contact Royal or send real notifications.
 Entertainment release behavior has been exercised in a running fork. Dining
-response interpretation is covered by captured-contract fixtures; this is not a
-claim of live validation for every dining product, including My Time Dining.
+discovery and eligibility behavior were also validated against sanitized live
+captures from Icon of the Seas and Utopia of the Seas. Those captures included
+normal restaurant reservations, My Time Dining, dining packages, onboard dining
+activities, and Royal Railway — Utopia Station. Royal Railway used `pt_dining`
+and returned in-stock dated offerings even when `active` was false or the guest
+had scheduling conflicts, so those fields are not used to suppress release alerts.
