@@ -1033,7 +1033,7 @@ def test_main_release_flow_reuses_session_and_bookings_then_suppresses_duplicate
     monkeypatch.setattr(c, 'get_voyages', Mock(return_value=[b]))
     catalog = capture('icon_catalog')
     products = catalog['data']['products']
-    products['commerceProducts'] = [p for p in products['commerceProducts'] if p['id'] == context[2].product]
+    products['commerceProducts'] = [p for p in products['commerceProducts'] if p['id'] == context[2].products[0]]
     products['pageInfo'].update(totalPages=1, totalResults=1)
     calls = []
     def transport(account, method, url, **kwargs):
