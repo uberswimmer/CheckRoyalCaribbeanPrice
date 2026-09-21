@@ -4205,34 +4205,71 @@ def parse_availability_config(raw: Any) -> Optional[AvailabilitySettings]:
         if unknown:
             fail("unrecognized configuration key(s): " + ", ".join(sorted(map(str, unknown))))
 
-    keys(raw, ("watches", "dryRun", "stateFile"))
+    keys(raw, ("reservations", "watches", "dryRun", "stateFile"))
+    reservations = raw.get("reservations")
     watches = raw.get("watches")
-    if not isinstance(watches, list) or not watches:
-        raise ValueError("availability.watches must be a nonempty list")
+    if reservations is not None and watches is not None:
+        raise ValueError("availability: configure reservations or watches, not both")
+
     parsed = []
-    ids = set()
-    for index, w in enumerate(watches):
-        location = f"availability.watches[{index}]"
-        if not isinstance(w, dict):
-            fail("watch must be a mapping")
-        keys(w, ("id", "name", "reservation", "category", "product",
-                 "enabled", "notifyOnReopen"))
-        wid = identifier(w.get("id"), "id")
-        if wid in ids:
-            fail("duplicate id; watch IDs must be unique")
-        ids.add(wid)
-        category = w.get("category")
-        if category not in ("show", "dining"):
-            fail("category must be show or dining")
-        product = identifier(w["product"], "product") if "product" in w else None
-        if category == "dining" and product is None:
-            fail("dining watches require a product code")
-        parsed.append(AvailabilityWatch(
-            id=wid, name=identifier(w.get("name", wid), "name"),
-            reservation=identifier(w.get("reservation"), "reservation"),
-            category=category, product=product,
-            enabled=boolean(w, "enabled", True),
-            notify_on_reopen=boolean(w, "notifyOnReopen", False)))
+    if reservations is not None:
+        if not isinstance(reservations, list) or not reservations:
+            raise ValueError("availability.reservations must be a nonempty list")
+        seen_reservations = set()
+        for index, item in enumerate(reservations):
+            location = f"availability.reservations[{index}]"
+            if not isinstance(item, dict):
+                fail("reservation entry must be a mapping")
+            keys(item, ("reservation", "dining", "shows", "notifyOnReopen"))
+            reservation = identifier(item.get("reservation"), "reservation")
+            if reservation in seen_reservations:
+                fail("duplicate reservation; reservation IDs must be unique")
+            seen_reservations.add(reservation)
+            dining = boolean(item, "dining", False)
+            shows = boolean(item, "shows", False)
+            if not dining and not shows:
+                fail("at least one of dining or shows must be true")
+            notify_on_reopen = boolean(item, "notifyOnReopen", False)
+            for category, selected, name in (
+                    ("dining", dining, "Dining reservations"),
+                    ("show", shows, "Shows")):
+                if not selected:
+                    continue
+                parsed.append(AvailabilityWatch(
+                    id=f"{reservation}:{category}",
+                    name=name,
+                    reservation=reservation,
+                    category=category,
+                    product=None,
+                    enabled=True,
+                    notify_on_reopen=notify_on_reopen))
+    else:
+        # Backward-compatible parsing for early draft configurations. New
+        # configurations should use availability.reservations.
+        if not isinstance(watches, list) or not watches:
+            raise ValueError("availability.reservations must be a nonempty list")
+        ids = set()
+        for index, w in enumerate(watches):
+            location = f"availability.watches[{index}]"
+            if not isinstance(w, dict):
+                fail("watch must be a mapping")
+            keys(w, ("id", "name", "reservation", "category", "product",
+                     "enabled", "notifyOnReopen"))
+            wid = identifier(w.get("id"), "id")
+            if wid in ids:
+                fail("duplicate id; watch IDs must be unique")
+            ids.add(wid)
+            category = w.get("category")
+            if category not in ("show", "dining"):
+                fail("category must be show or dining")
+            product = identifier(w["product"], "product") if "product" in w else None
+            parsed.append(AvailabilityWatch(
+                id=wid, name=identifier(w.get("name", wid), "name"),
+                reservation=identifier(w.get("reservation"), "reservation"),
+                category=category, product=product,
+                enabled=boolean(w, "enabled", True),
+                notify_on_reopen=boolean(w, "notifyOnReopen", False)))
+
     location = "availability"
     state = raw.get("stateFile", "data/reservation-availability.json")
     if not isinstance(state, str) or not state.strip() or state == ":memory:":
@@ -4619,12 +4656,17 @@ def process_availability_bookings(account: AccountInfo, bookings: list, settings
                 products = [p for p in products if p["id"] == watch.product]
             results = []
             skipped = 0
+            # Product IDs with an unknown type remain "present" so a malformed
+            # catalog cannot falsely close a previously seen reservation. Known
+            # other-category products are excluded from this category's state.
+            catalog_presence = set()
             for product in products:
                 pid = product["id"]
                 title = product.get("title") or pid
                 product_type = product.get("type")
                 type_id = product_type.get("id") if isinstance(product_type, dict) else None
                 if not isinstance(type_id, str) or not type_id.startswith("pt_") or len(type_id) <= 3:
+                    catalog_presence.add(pid)
                     results.append(AvailabilityResult(pid, title, "unknown", "missing or malformed product type"))
                     continue
                 if type_id != "pt_" + watch.category:
@@ -4638,6 +4680,7 @@ def process_availability_bookings(account: AccountInfo, bookings: list, settings
                             f"(catalog type {type_id}; watching pt_{watch.category})")
                         skipped += 1
                     continue
+                catalog_presence.add(pid)
                 try:
                     payload = availability_eligibility(account, booking, watch, pid, party)
                     results.append(evaluate_availability(payload, watch, pid, title, party))
@@ -4647,13 +4690,13 @@ def process_availability_bookings(account: AccountInfo, bookings: list, settings
             if watch.product and not products:
                 results.append(AvailabilityResult(watch.product, watch.name, "unavailable", "product not listed"))
             if not products and not watch.product:
-                log(f"      {YELLOW}No entertainment products listed{RESET}")
+                log(f"      {YELLOW}No {watch.category} products listed{RESET}")
             elif skipped and skipped == len(products):
-                log(f"      {YELLOW}No matching show products listed "
+                log(f"      {YELLOW}No matching {watch.category} products listed "
                     f"({skipped} other-category products skipped){RESET}")
-            # Only a complete catalog can confirm a previously seen show's
+            # Only a complete catalog can confirm a previously seen product's
             # disappearance. Delivery compares it with state while holding the lock.
-            current = {p["id"] for p in products} if not watch.product else None
+            current = catalog_presence if not watch.product else None
             healthy = deliver_availability(settings, account, booking, watch, party, results,
                                            catalog_products=current) and healthy
         except (AvailabilityUnknown, KeyError, TypeError, AttributeError, ValueError, OSError, ImportError) as exc:
@@ -4671,7 +4714,8 @@ def process_availability_bookings(account: AccountInfo, bookings: list, settings
 
 def finish_availability_run(settings: AvailabilitySettings, found_reservations: set, healthy: bool) -> None:
     """Report missing bookings and incomplete checks after normal price outputs."""
-    missing = [w.name for w in settings.watches if w.enabled and w.reservation not in found_reservations]
+    missing = sorted({w.reservation for w in settings.watches
+                      if w.enabled and w.reservation not in found_reservations})
     if missing:
         log_warn(f"  {RED}Configured reservations were not found: {', '.join(missing)}{RESET}")
         healthy = False
