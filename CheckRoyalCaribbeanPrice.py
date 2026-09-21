@@ -3996,7 +3996,7 @@ class AvailabilityReservation:
 class AvailabilitySettings:
     reservations: Tuple[AvailabilityReservation, ...]
     dry_run: bool = True
-    state_file: str = "data/reservation-availability.json"
+    state_file: str = "data/reservation-availability-v2.json"
     only: bool = False
 
 
@@ -4085,7 +4085,7 @@ def parse_availability_config(raw: Any) -> Optional[AvailabilitySettings]:
     dry_run = raw.get("dryRun", True)
     if not isinstance(dry_run, bool):
         raise ValueError("availability: dryRun must be true or false")
-    state = raw.get("stateFile", "data/reservation-availability.json")
+    state = raw.get("stateFile", "data/reservation-availability-v2.json")
     if not isinstance(state, str) or not state.strip() or state == ":memory:":
         raise ValueError("availability.stateFile must name a persistent file")
     only = raw.get("only", False)
@@ -4314,7 +4314,9 @@ def availability_time_lines(times: tuple) -> list[str]:
 
 def read_reservation_state(path: Path) -> dict:
     """Only a missing file starts fresh; invalid state never resets alerts."""
-    invalid = "Invalid reservation availability JSON state; check availability.stateFile"
+    invalid = ("Invalid reservation availability JSON state; check availability.stateFile. "
+               "Legacy watch-scoped state is not compatible with reservation/category scopes; "
+               "use a new state file path.")
     try:
         with path.open(encoding="utf-8") as stream:
             state = json.load(stream)
