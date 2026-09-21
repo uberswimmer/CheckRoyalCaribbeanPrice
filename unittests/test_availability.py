@@ -5,6 +5,7 @@ No tests contact Royal Caribbean or send real notifications.
 """
 import copy
 import json
+import logging
 import subprocess
 import sys
 from dataclasses import asdict, replace
@@ -622,6 +623,53 @@ def test_mixed_catalog_still_checks_and_notifies_matching_show(context, monkeypa
     assert 'Headliner:' in c.config.apobj.notify.call_args.kwargs['body']
     assert 'Escape room' not in c.config.apobj.notify.call_args.kwargs['body']
 
+
+
+def test_availability_output_groups_results_under_sailing(context, monkeypatch):
+    a, b, category, s, p = context
+    c.config.date_display_format = "%m/%d/%Y"
+    booking = dict(b, shipName="Icon of the Seas")
+    product = category.products[0]
+    monkeypatch.setattr(c, 'availability_products', Mock(return_value=[
+        {'id': product, 'title': 'Headliner', 'type': {'id': 'pt_show'}},
+    ]))
+    monkeypatch.setattr(c, 'availability_eligibility', Mock(return_value=capture('headliner')))
+    assert c.process_availability_bookings(a, [booking], replace(s, dry_run=True))
+
+    lines = [call.args[0] for call in c.log.call_args_list]
+    account_line = next(i for i, line in enumerate(lines) if 'Royal Caribbean for user' in line)
+    sailing_line = next(i for i, line in enumerate(lines) if '10/10/2099 Icon of the Seas' in line)
+    category_line = next(i for i, line in enumerate(lines) if 'Shows' in line)
+    product_line = next(i for i, line in enumerate(lines) if 'Headliner: Available' in line)
+    assert account_line < sailing_line < category_line < product_line
+    assert lines[sailing_line].startswith('    ')
+    assert lines[category_line].startswith('      ')
+    assert lines[product_line].startswith('        ')
+
+
+def test_availability_sailing_label_falls_back_to_ship_code(context):
+    _, booking, *_ = context
+    c.config.date_display_format = "%m/%d/%Y"
+    assert c.availability_sailing_label(booking) == "10/10/2099 IC"
+
+
+def test_availability_notification_hides_apprise_info_chatter_but_keeps_warnings(context, caplog):
+    chatter = "Sent Pushover notification to ALL_DEVICES."
+    warning = "Pushover delivery warning"
+    notifier = Mock()
+
+    def notify(**kwargs):
+        logging.getLogger("apprise").info(chatter)
+        logging.getLogger("apprise").warning(warning)
+        return True
+
+    notifier.notify.side_effect = notify
+    c.config.apobj = notifier
+    with caplog.at_level(logging.INFO):
+        assert deliver(context)
+
+    assert chatter not in caplog.text
+    assert warning in caplog.text
 
 def test_explicit_product_type_mismatch_stays_unknown(context, monkeypatch):
     a, b, category, s, p = context

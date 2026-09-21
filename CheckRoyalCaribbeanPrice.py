@@ -4017,6 +4017,26 @@ def availability_category_label(category: str) -> str:
     return {"dining": "Dining reservations", "show": "Shows"}.get(category, category)
 
 
+def availability_sailing_label(booking: dict) -> str:
+    """Presentation label for a monitored sailing without requiring another API call."""
+    sailing = availability_date(booking["sailDate"])
+    ship_name = booking.get("shipName")
+    if not isinstance(ship_name, str) or not ship_name.strip():
+        ship_name = str(booking.get("shipCode") or "Unknown ship")
+    return f"{config.format_date(sailing.strftime('%Y%m%d'))} {ship_name.strip()}"
+
+
+@contextmanager
+def suppress_availability_notification_info():
+    """Hide Apprise transport-success chatter while preserving warnings/errors."""
+    previous = logging.root.manager.disable
+    logging.disable(max(previous, logging.INFO))
+    try:
+        yield
+    finally:
+        logging.disable(previous)
+
+
 def parse_availability_config(raw: Any) -> Optional[AvailabilitySettings]:
     if raw is None:
         return None
@@ -4350,11 +4370,11 @@ def deliver_availability(settings: AvailabilitySettings, account: AccountInfo, b
     """
     for result in results:
         color = {"available": GREEN, "unavailable": YELLOW, "unknown": RED}[result.state]
-        log(f"      {color}{result.title}: {result.state.capitalize()}{RESET} ({result.reason})")
+        log(f"        {color}{result.title}: {result.state.capitalize()}{RESET} ({result.reason})")
         for line in availability_time_lines(result.times):
-            log(f"        {line}")
+            log(f"          {line}")
     if settings.dry_run:
-        log(f"      {YELLOW}Availability dry run: no availability notifications or state changes{RESET}")
+        log(f"        {YELLOW}Availability dry run: no availability notifications or state changes{RESET}")
         return not any(result.state == "unknown" for result in results)
 
     path = Path(settings.state_file).expanduser()
@@ -4380,7 +4400,7 @@ def deliver_availability(settings: AvailabilitySettings, account: AccountInfo, b
                        for pid in rows
                        if pid not in catalog_products and pid not in result_products]
             for result in missing:
-                log(f"      {YELLOW}{result.title}: Unavailable{RESET} ({result.reason})")
+                log(f"        {YELLOW}{result.title}: Unavailable{RESET} ({result.reason})")
             results = [*results, *missing]
 
         candidates = []
@@ -4417,8 +4437,12 @@ def deliver_availability(settings: AvailabilitySettings, account: AccountInfo, b
                 lines.append("Reported stock does not guarantee a table for the full party.")
             notifier = notifier_for(account)
             try:
-                sent = notifier is not None and notifier.notify(body="\n".join(lines),
-                    title="Cruise Reservation Availability", body_format=NotifyFormat.TEXT) is True
+                if notifier is None:
+                    sent = False
+                else:
+                    with suppress_availability_notification_info():
+                        sent = notifier.notify(body="\n".join(lines),
+                            title="Cruise Reservation Availability", body_format=NotifyFormat.TEXT) is True
             except Exception:
                 sent = False
             if sent:
@@ -4428,7 +4452,7 @@ def deliver_availability(settings: AvailabilitySettings, account: AccountInfo, b
             else:
                 reason = ("No notification service configured; configure apprise for availability alerts"
                           if notifier is None else "Notification not confirmed; will retry on a later check")
-                log_warn(f"      {RED}{reason}{RESET}")
+                log_warn(f"        {RED}{reason}{RESET}")
 
         if changed:
             state["scopes"][scope] = rows
@@ -4462,6 +4486,8 @@ def process_availability_bookings(account: AccountInfo, bookings: list, settings
                 log(f"    {YELLOW}Departed sailing skipped{RESET}")
                 continue
             party = availability_party(booking)
+            log(" ")
+            log(f"    {BLUE}{availability_sailing_label(booking)}{RESET}")
         except (AvailabilityUnknown, KeyError, TypeError, AttributeError, ValueError) as exc:
             reason = str(exc) if isinstance(exc, AvailabilityUnknown) else type(exc).__name__
             log_warn(f"    {RED}Unknown ({reason}); state not advanced{RESET}")
@@ -4469,8 +4495,7 @@ def process_availability_bookings(account: AccountInfo, bookings: list, settings
             continue
 
         for category in reservation.categories:
-            log(" ")
-            log(f"    {BLUE}{availability_category_label(category.category)}{RESET}")
+            log(f"      {BLUE}{availability_category_label(category.category)}{RESET}")
             try:
                 products = availability_products(account, booking, category.category)
                 selected = set(category.products) if category.products is not None else None
@@ -4509,7 +4534,7 @@ def process_availability_bookings(account: AccountInfo, bookings: list, settings
                             pid, pid, "unavailable", "product not listed"))
 
                 if not scoped_products and selected is None:
-                    log(f"      {YELLOW}No {category.category} products listed{RESET}")
+                    log(f"        {YELLOW}No {category.category} products listed{RESET}")
 
                 healthy = deliver_availability(
                     settings, account, booking, category, reservation.notify_on_reopen,
@@ -4522,7 +4547,7 @@ def process_availability_bookings(account: AccountInfo, bookings: list, settings
                               "); check availability.stateFile and directory permissions or overlapping checks")
                 else:
                     reason = type(exc).__name__
-                log_warn(f"      {RED}Unknown ({reason}); state not advanced{RESET}")
+                log_warn(f"        {RED}Unknown ({reason}); state not advanced{RESET}")
                 healthy = False
     return healthy
 

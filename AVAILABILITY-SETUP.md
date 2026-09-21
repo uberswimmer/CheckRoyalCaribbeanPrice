@@ -146,6 +146,8 @@ A notifier must report success before an alert is acknowledged.
 
 ## Notifications
 
+Console and web-report output are grouped by account, then sailing, then Dining/Shows. The sailing line displays the formatted sail date and ship name when available, with the ship code as a fallback. Apprise's routine transport-success chatter is hidden for availability notifications; warnings and failures are still shown.
+
 Newly available products are grouped into one alert per reservation category. Each
 product previews up to six times and links to the sailing's Cruise Planner category.
 The console retains all returned times.
