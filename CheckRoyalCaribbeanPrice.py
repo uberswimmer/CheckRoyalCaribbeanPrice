@@ -4658,17 +4658,12 @@ def process_availability_bookings(account: AccountInfo, bookings: list, settings
                 products = [p for p in products if p["id"] == watch.product]
             results = []
             skipped = 0
-            # Product IDs with an unknown type remain "present" so a malformed
-            # catalog cannot falsely close a previously seen reservation. Known
-            # other-category products are excluded from this category's state.
-            catalog_presence = set()
             for product in products:
                 pid = product["id"]
                 title = product.get("title") or pid
                 product_type = product.get("type")
                 type_id = product_type.get("id") if isinstance(product_type, dict) else None
                 if not isinstance(type_id, str) or not type_id.startswith("pt_") or len(type_id) <= 3:
-                    catalog_presence.add(pid)
                     results.append(AvailabilityResult(pid, title, "unknown", "missing or malformed product type"))
                     continue
                 if type_id != "pt_" + watch.category:
@@ -4682,7 +4677,6 @@ def process_availability_bookings(account: AccountInfo, bookings: list, settings
                             f"(catalog type {type_id}; watching pt_{watch.category})")
                         skipped += 1
                     continue
-                catalog_presence.add(pid)
                 try:
                     payload = availability_eligibility(account, booking, watch, pid, party)
                     results.append(evaluate_availability(payload, watch, pid, title, party))
@@ -4698,7 +4692,7 @@ def process_availability_bookings(account: AccountInfo, bookings: list, settings
                     f"({skipped} other-category products skipped){RESET}")
             # Only a complete catalog can confirm a previously seen product's
             # disappearance. Delivery compares it with state while holding the lock.
-            current = catalog_presence if not watch.product else None
+            current = {p["id"] for p in products} if not watch.product else None
             healthy = deliver_availability(settings, account, booking, watch, party, results,
                                            catalog_products=current) and healthy
         except (AvailabilityUnknown, KeyError, TypeError, AttributeError, ValueError, OSError, ImportError) as exc:
