@@ -61,3 +61,10 @@ logFile: "output.txt"
 #       dining: true
 #       shows: true
 #       notifyOnReopen: false
+#
+# Advanced: monitor only selected product IDs instead of every discovered restaurant:
+#     - reservation: "7654321"
+#       dining:
+#         products:
+#           - "UT_RAILDINNER"
+#       shows: false
