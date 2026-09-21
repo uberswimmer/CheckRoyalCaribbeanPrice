@@ -262,6 +262,67 @@ def valid_config():
     return {'dryRun':True,'watches':[{'id':'shows','reservation':123,'category':'show'}]}
 
 
+def test_reservation_config_expands_to_dining_and_show_discovery():
+    s = c.parse_availability_config({
+        'dryRun': True,
+        'reservations': [{
+            'reservation': 123,
+            'dining': True,
+            'shows': True,
+            'notifyOnReopen': True,
+        }],
+    })
+    assert s.dry_run
+    assert [(w.reservation, w.category, w.product, w.notify_on_reopen) for w in s.watches] == [
+        ('123', 'dining', None, True),
+        ('123', 'show', None, True),
+    ]
+    assert [w.name for w in s.watches] == ['Dining reservations', 'Shows']
+    assert len({w.id for w in s.watches}) == 2
+
+
+@pytest.mark.parametrize('raw, expected', [
+    ({'reservations': []}, 'availability.reservations must be a nonempty list'),
+    ({'reservations': [{'reservation': '1'}]}, 'at least one of dining or shows must be true'),
+    ({'reservations': [{'reservation': '1', 'dining': 'true'}]}, 'dining must be true or false'),
+    ({'reservations': [
+        {'reservation': '1', 'dining': True},
+        {'reservation': 1, 'shows': True},
+    ]}, 'duplicate reservation'),
+    ({'reservations': [{'reservation': '1', 'dining': True}],
+      'watches': [{'id': 'old', 'reservation': '1', 'category': 'show'}]},
+     'configure reservations or watches, not both'),
+])
+def test_invalid_reservation_config_rejected(raw, expected):
+    with pytest.raises(ValueError, match=expected):
+        c.parse_availability_config(raw)
+
+
+def test_dining_discovery_checks_every_matching_dining_product(context, monkeypatch):
+    a, b, _, s, p = context
+    watch = c.parse_availability_config({
+        'reservations': [{'reservation': b['bookingId'], 'dining': True}]
+    }).watches[0]
+    products = [
+        {'id': 'dining-1', 'title': 'First restaurant', 'type': {'id': 'pt_dining'}},
+        {'id': 'activity-1', 'title': 'Other activity', 'type': {'id': 'pt_onboardActivities'}},
+        {'id': 'dining-2', 'title': 'Second restaurant', 'type': {'id': 'pt_dining'}},
+    ]
+    monkeypatch.setattr(c, 'availability_products', Mock(return_value=products))
+
+    def eligibility(_account, _booking, _watch, product, _party):
+        data = capture('railway')
+        data['payload']['productCode'] = product
+        return data
+
+    check = Mock(side_effect=eligibility)
+    monkeypatch.setattr(c, 'availability_eligibility', check)
+    settings = replace(s, watches=(watch,), dry_run=True)
+    assert c.process_availability_bookings(a, [b], settings)
+    assert [call.args[3] for call in check.call_args_list] == ['dining-1', 'dining-2']
+    assert any('Other activity: skipped' in call.args[0] for call in c.log.call_args_list)
+
+
 def test_config_defaults_and_normalization():
     assert c.parse_availability_config(None) is None
     s = c.parse_availability_config(valid_config())

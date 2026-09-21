@@ -51,13 +51,13 @@ logFile: "output.txt"
 # Optional dining/show reservation-release alerts; disabled unless configured.
 # Start with dryRun: true, verify the console results, then set false to notify.
 # This dry run affects ONLY release alerts; normal price alerts are unchanged.
-# See docs/reservation-alerts.md for dining product watches and persistent storage.
+# Dining and show products are discovered automatically for each reservation.
+# See docs/reservation-alerts.md for behavior, limitations, and persistent storage.
 # availability:
 #   dryRun: true
 #   stateFile: "data/reservation-availability.json"
-#   watches:
-#     - id: "summer-shows"
-#       name: "Summer cruise shows"
-#       reservation: "1234567"
-#       category: "show"
+#   reservations:
+#     - reservation: "1234567"
+#       dining: true
+#       shows: true
 #       notifyOnReopen: false
