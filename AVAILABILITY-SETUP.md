@@ -27,7 +27,7 @@ dedicated-container configuration uses:
 availability:
   only: true
   dryRun: true
-  stateFile: /app/data/reservation-availability-v2.json
+  stateFile: /app/data/reservation-availability.json
   reservations:
     - reservation: "1234567"
       dining: true
@@ -59,7 +59,7 @@ For selective monitoring, provide product IDs:
 availability:
   only: true
   dryRun: true
-  stateFile: /app/data/reservation-availability-v2.json
+  stateFile: /app/data/reservation-availability.json
   reservations:
     - reservation: "1234567"
       dining:
@@ -78,15 +78,17 @@ The prior fork build stored reservation alerts in a watch-scoped JSON schema und
 `reservation-availability.json`. The reservation/category model uses a different
 scope identity and does not import that state.
 
-Use a new state path:
+Before deploying this build, stop the checker and delete the existing
+`/app/data/reservation-availability.json` file (and its stale `.lock` sidecar if
+present). Keep the configured path unchanged:
 
 ```yaml
-stateFile: /app/data/reservation-availability-v2.json
+stateFile: /app/data/reservation-availability.json
 ```
 
-Do not rename the old file into the new path. Keep it as a backup until you are
-satisfied with the new build. The first live run can send alerts for products that
-are already available; subsequent successful checks suppress repeats.
+The new build recreates the file with the reservation/category `scopes` schema.
+The first live run can send alerts for products that are already available;
+subsequent successful checks suppress repeats.
 
 The new JSON contains a version number and a `scopes` mapping. Scope keys are hashed
 from account, sailing, booking, and category context. Credentials, guest names, and

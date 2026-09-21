@@ -31,13 +31,13 @@ Keep the existing timezone and cron schedule. Mount:
 
 The host configuration may be named `config.availability.yaml`; it is the same
 single file that appears inside the container as `/app/config.yaml`. Configure
-`availability.stateFile: /app/data/reservation-availability-v2.json` to retain alert
+`availability.stateFile: /app/data/reservation-availability.json` to retain alert
 history across container recreation.
 
 The reservation-centric build uses a different state identity from the older
-watch-scoped JSON and earlier SQLite builds. Use the new v2 path and expect one
-fresh alert for products already available. Leave old state files in place as
-backups; do not rename them into the v2 path. See
+watch-scoped JSON. Before the first run of this build, stop the checker and delete
+the existing `/app/data/reservation-availability.json` file so it can be recreated
+with the new schema. Expect one fresh alert for products already available. See
 [AVAILABILITY-SETUP.md](AVAILABILITY-SETUP.md#state-migration).
 
 Initially use `only: true` and `dryRun: true`. In the container console, validate

@@ -17,9 +17,9 @@ availability:
   # Start by comparing log output with Cruise Planner, then change to false.
   dryRun: true
 
-  # The reservation-centric build uses a new state schema. Do not reuse the
-  # older reservation-availability.json file from the watch-centric build.
-  stateFile: /app/data/reservation-availability-v2.json
+  # The reservation-centric build uses a new state schema. Before first use,
+  # delete any existing watch-scoped reservation-availability.json file.
+  stateFile: /app/data/reservation-availability.json
 
   reservations:
     - reservation: "YOUR_BOOKING_ID"
