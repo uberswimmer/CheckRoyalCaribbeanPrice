@@ -151,6 +151,10 @@ availability:
       shows: true
 ```
 
+By default, `dining: true` and `shows: true` monitor every matching product Royal
+returns for that category. Advanced configurations can restrict a category to selected
+product IDs, for example `dining: {products: [UT_RAILDINNER]}`.
+
 See [configuration, notification behavior, and limitations](reservation-alerts.md).
 
 ## Example Config with more options (not all of them)
