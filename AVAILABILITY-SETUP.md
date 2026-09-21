@@ -1,22 +1,18 @@
-# Royal Caribbean availability test build 0.1.0
+# Royal Caribbean reservation availability setup
 
-This source build adds entertainment and dining availability monitoring directly to
-`CheckRoyalCaribbeanPrice.py`. It does not run or import the Browse script. It uses
-the checker's existing authentication, request helper, and Apprise notifications.
+This fork can monitor booked Royal Caribbean sailings for dining and entertainment
+reservation releases. It uses the checker's existing authentication, request helper,
+scheduler, and Apprise notifications. It does not reserve, purchase, modify, or
+cancel anything.
 
-The supplied Compose configuration creates a separate service and image. It defaults
-to availability-only operation, so it does not duplicate cabin/add-on price alerts.
-It uses the existing upstream Dockerfile and scheduler. No additional polling loop
-or entertainment-specific schedule is added.
+For the detailed configuration contract and detector behavior, see
+[docs/reservation-alerts.md](docs/reservation-alerts.md).
 
-For GitHub-published images and an existing Docker Compose or Portainer deployment,
-see [GITHUB-DEPLOYMENT.md](GITHUB-DEPLOYMENT.md).
-The local-build instructions below remain available.
+## Dedicated availability container
 
-## Set up your separate container
-
-These commands assume a Linux Docker host with Docker Compose v2. Extract the ZIP
-and open a shell in its `royal-availability` directory.
+The supplied Compose configuration can run availability checks without duplicating
+normal cabin/add-on price alerts. Copy the sample and keep the data directory
+persistent:
 
 ```sh
 cp SAMPLE-availability-config.yaml config.availability.yaml
@@ -24,287 +20,142 @@ mkdir -p data
 chmod 600 config.availability.yaml
 ```
 
-Edit `config.availability.yaml`:
+Copy your Royal Caribbean credentials and Apprise URL into the file. The default
+dedicated-container configuration uses:
 
-1. Copy your Royal Caribbean account credentials and Apprise URL from the existing
-   checker. Keep them only in this local configuration.
-2. Replace the booking placeholders. Remove or disable watches you do not need.
-   A watch targets one booking. Add another watch with a distinct `id` for another
-   sailing.
-3. Keep `availability.only: true` and `dryRun: true` for the first run.
-4. Set the Compose `CRON_SCHEDULE` and `TZ` to match your existing checker. The sample
-   defaults to 7 AM and 7 PM in America/New_York; your actual schedule was not provided.
+```yaml
+availability:
+  only: true
+  dryRun: true
+  stateFile: /app/data/reservation-availability-v2.json
+  reservations:
+    - reservation: "1234567"
+      dining: true
+      shows: true
+      notifyOnReopen: false
+```
 
-Build and validate syntax without signing in:
+`only: true` is a fork-only execution switch for the dedicated availability
+container. Omit it or set it to `false` when availability should run alongside
+normal price checks.
+
+## Category selection
+
+The common configuration is intentionally simple:
+
+- `dining: true` discovers the sailing's complete Dining catalog and checks every
+  product whose returned type is exactly `pt_dining`.
+- `shows: true` discovers the Show catalog and checks every product whose returned
+  type is exactly `pt_show`.
+- `false` disables that category.
+
+Royal's Dining category can also contain packages and onboard activities. Those are
+not queried as restaurant reservations because their returned product type differs
+from `pt_dining`.
+
+For selective monitoring, provide product IDs:
+
+```yaml
+availability:
+  only: true
+  dryRun: true
+  stateFile: /app/data/reservation-availability-v2.json
+  reservations:
+    - reservation: "1234567"
+      dining:
+        products:
+          - "UT_RAILDINNER"
+      shows: true
+```
+
+A selected product that is absent from a complete catalog can become unavailable
+for reopen tracking. Unrelated products are ignored and are not interpreted as
+closed.
+
+## State migration
+
+The prior fork build stored reservation alerts in a watch-scoped JSON schema under
+`reservation-availability.json`. The reservation/category model uses a different
+scope identity and does not import that state.
+
+Use a new state path:
+
+```yaml
+stateFile: /app/data/reservation-availability-v2.json
+```
+
+Do not rename the old file into the new path. Keep it as a backup until you are
+satisfied with the new build. The first live run can send alerts for products that
+are already available; subsequent successful checks suppress repeats.
+
+The new JSON contains a version number and a `scopes` mapping. Scope keys are hashed
+from account, sailing, booking, and category context. Credentials, guest names, and
+raw API responses are not stored.
+
+## First run
+
+Build and validate configuration without signing in:
 
 ```sh
 docker compose -f compose.availability.yaml build
 docker compose -f compose.availability.yaml run --rm royal-availability check --validate-config
 ```
 
-Perform one live diagnostic run:
+Then perform a live diagnostic run while `dryRun: true`:
 
 ```sh
 docker compose -f compose.availability.yaml run --rm royal-availability check
 ```
 
-A dry run does call Royal's read endpoints, including the POST eligibility query,
-using your credentials. It does not notify or advance availability notification state.
-Compare the returned product names and times with Cruise Planner. `unknown` means
-failed or insufficient evidence, not closed reservations. A failed availability check exits nonzero
-in either mode. Combined mode completes price summaries and exports before reporting
-the availability failure. Fix failures before relying on monitoring.
+A dry run does make authenticated read requests to Royal's APIs, but it does not
+send availability notifications or advance reservation-availability state. Compare
+the returned products and times with Cruise Planner.
 
-When the diagnostic output matches the website, change `dryRun` to `false`, then:
+When the results look correct, set `dryRun: false` and start the service:
 
 ```sh
 docker compose -f compose.availability.yaml up -d
 docker compose -f compose.availability.yaml logs --tail=100 -f royal-availability
 ```
 
-The first scheduled check runs at the next cron time. For an immediate check:
+For an immediate scheduled-container check:
 
 ```sh
 docker compose -f compose.availability.yaml exec royal-availability ./entrypoint.sh check
 ```
 
-The first live run alerts for products already available, as well as future releases.
-Simultaneously discovered products are combined into one alert per watch.
-Apprise can deliver an oversized alert as multiple messages; see below.
-Stop this instance with:
+## Availability semantics
 
-```sh
-docker compose -f compose.availability.yaml down
-```
+The detector uses dated offering inventory. Existing reservations, personal schedule
+conflicts, and guest conflict metadata do not suppress a release alert.
 
-The `data` directory remains. Keep it when rebuilding or replacing the container:
-`data/reservation-availability.json` prevents repeated alerts across restarts. This is
-separate from cabin-alert state and the optional price-history database. If configuration edits made
-by your editor replace the mounted file rather than modify it in place, restart the
-container to refresh the bind mount. Schedule/timezone edits require Compose to
-recreate the container (`up -d --force-recreate`).
+Live Icon of the Seas and Utopia of the Seas captures validated normal restaurant
+reservations, My Time Dining, mixed Dining catalogs, and Royal Railway — Utopia
+Station. Royal Railway used `pt_dining` and returned in-stock offerings even with
+`active: false` and personal conflicts, so neither field is treated as a booking
+gate.
 
-## Watch behavior
+`stockLevel: 9999` is an API indicator rather than a literal table or seat count.
+Dining inventory is not a guarantee that Royal can seat the full party.
 
-| Option | Behavior |
-| --- | --- |
-| `category: show` without `product` | Discover all entertainment products for the specified booking. Newly listed shows are picked up on subsequent runs. |
-| `category: show` with `product` | Check that exact product ID. |
-| `category: dining` | Requires an exact product ID, for example `UT_RAILDINNER` for the captured Utopia Railway product. Do not assume codes carry across ships/sailings. |
-| `mode: release` | Default. Alert when dated offerings report inventory. Existing reservations, personal scheduling conflicts, and exhausted guest allowance do not hide a release. |
-| `mode: party` | Also require remaining allowance for every configured guest, compliance with the returned guest limit, and no reported conflict for that offering. This is not a checkout or table-size guarantee. |
-| `notifyOnReopen: false` | Default. One successfully acknowledged alert per product, watch, account and sailing. Adding a new product can trigger another alert. |
-| `notifyOnReopen: true` | Re-arm after a successful observation of unavailability, including catalog disappearance. Unknown/error responses never re-arm. |
-| `enabled: false` | Skip the watch. |
-| `guests` omitted | Use `passengersInStateroom` from the targeted booking. Never silently fall back to a single guest. |
-| Explicit `guests` | Each entry requires `id` and `reservationId`. Supports a deliberately configured party spanning linked bookings. |
+Incomplete pagination, malformed responses, HTTP/GraphQL failures, and unrecognized
+inventory fields are `unknown`, not sold out. Unknown checks preserve prior state.
+A notifier must report success before an alert is acknowledged.
 
-Each watch requires a stable unique `id`, a `reservation`, and a `category`.
-`name` is a human-readable label and defaults to `id`. Changing an ID, mode, account,
-or sailing changes its notification identity. Changing the party resets identity only
-in party mode. The state file stores a SHA-256 context key, product ID, last known
-state, and notification acknowledgement; it does not store credentials or guest names.
+## Notifications
 
-To use availability alongside price checks in one instance, add the availability
-section to an existing config with `only: false` (the default). Without that section,
-upstream behavior is unchanged. `dryRun` controls only availability notifications;
-normal price notifications and an explicit `appriseTest` retain upstream behavior.
-For your separate instance, keep `only: true`.
+Newly available products are grouped into one alert per reservation category. Each
+product previews up to six times and links to the sailing's Cruise Planner category.
+The console retains all returned times.
 
-In combined mode, the `Reservation Availability Watches` console section runs
-after booked-item price watches and the prospective cruise watchlist, before the
-check-in/payment summary. It reuses each account's existing authenticated session
-and booking snapshot. Availability-only mode uses the same section layout.
-Blue headings separate accounts and watches; available results are green,
-unavailable results yellow, and unknown/error results red. Times are grouped by
-date in 24-hour format, preserving the wall-clock times returned by Royal.
+If the notification service has small message limits, add Apprise's
+`overflow=split` option to the notification URL.
 
-`availability.dryRun` is not a global dry-run switch. The upstream program has no
-general dry-run mode: combined price checks can still send their normal alerts.
-The console labels this setting as `Availability dry run` to make the scope clear.
+## Persistent storage
 
-## Readable alerts and message length
+Keep `/app/data` bind-mounted across container replacements. The reservation state
+file is separate from cabin availability state and price-history SQLite data.
 
-Availability alerts group each show's times by date in 24-hour format, using the
-existing `dateDisplayFormat` setting and preserving Royal's wall-clock values.
-Blank lines separate products. Each product previews up to six returned times;
-any additional times are counted in a “more times” note. The console/web report
-continues to show all returned times. One Cruise Planner category link supplies
-the booking and sailing context for the whole watch, instead of repeating a long
-product link for every show. Open that category and choose the desired product.
-
-To prevent notification-service length limits from cutting off larger alerts,
-use Apprise's built-in `overflow=split` option on your notification URL:
-
-- No existing query options: append `?overflow=split`.
-- Existing query options after `?`: append `&overflow=split`.
-- An existing `overflow` parameter: change its value to `split`.
-
-Keep the complete URL quoted in YAML. For example, with fictional placeholders:
-
-```yaml
-apprise:
-  - url: "pover://APP_TOKEN@USER_KEY/?overflow=split"
-```
-
-Set it on the per-account URL instead if that account overrides the global
-notifier. This is a standard Apprise option, not a new checker setting or custom
-Pushover implementation. It applies to all alerts sent through that URL, including
-price alerts. Each service's plugin handles its own limits; the checker neither
-hard-codes a message length nor changes your notification URL automatically.
-Apprise's splitting is length-based and is not guaranteed to keep each show block
-in a separate message. See [Apprise overflow documentation](https://appriseit.com/qa/data-overflow/).
-
-The availability state is acknowledged only when Apprise reports full success.
-A failed part leaves the alert eligible for retry at the next check, which can
-repeat parts that already arrived. This preserves the existing delivery behavior.
-Changing formatting or the URL does not reset notification history or resend
-previously acknowledged releases. Their times remain in the latest report.
-
-## What the detector actually knows
-
-Entertainment uses GraphQL category `show` and eligibility category `pt_show`.
-Dining uses `dining` and `pt_dining`. Products are discovered through a complete,
-paginated `WebProductsByCategory` query. Offerings and guest restrictions come from:
-
-```text
-POST /en/royal/web/commerce-api/eligibility/v1/eligibility
-```
-
-Royal's entertainment catalog can also contain products in other categories, such
-as escape-room experiences. Automatic show discovery logs and skips products with
-an explicit different `pt_` category; these do not cause a failed check or a show
-release alert. A missing/malformed type remains unknown, and an explicitly watched
-product with a category mismatch still reports an error. Skipping a product does
-not clear its existing notification history. This watcher does not monitor escape
-room availability.
-
-No cart addition, booking confirmation, cancellation, or purchase is performed.
-The watcher does not call `/cart/v1/price`: your captured conflict and no-conflict
-quotes differed only in offering IDs and did not validate inventory.
-
-- Times are displayed as returned by Royal, without assuming a timezone conversion.
-- `active: false` is not a booking gate. It appeared in both available and restricted
-  captured responses.
-- `stockLevel: 9999` is an API indicator, not a literal seat/table count. Even party
-  mode does not promise that all guests will sit together at a restaurant.
-- Each hard conflict is scoped to the offering ID. A guest's 7:15 PM conflict must
-  not hide their 9:30 PM option.
-- Party mode does not automatically suppress a dining watch just because the venue
-  has already been booked. Railway returned remaining allowance of 9999 even for
-  guests with an existing reservation. Disable the watch when no longer wanted, or
-  use default one-time release alerts.
-- Empty catalogs/offerings are different from unknown errors. HTTP errors, malformed
-  JSON, GraphQL errors, incomplete pagination, and unrecognized eligibility evidence
-  preserve prior state. Other products can still be checked after a product fails.
-- A notifier must return success before the alert is acknowledged. Failed delivery
-  retries on later checks. If a process dies after sending but before saving its
-  acknowledgement, an alert can repeat. Partial success across multiple Apprise
-  destinations can also repeat at successful destinations on retry.
-
-## State location and diagnostics
-
-Relative `availability.stateFile` paths use the process's working directory, as in
-previous extension versions. Use an absolute path to keep notification history in
-the same location when launching from different directories. For Docker, use
-`/app/data/reservation-availability.json` and keep `/app/data` bind-mounted. On other systems,
-choose an explicit writable absolute path.
-
-### Updating from SQLite state
-
-Change any explicit `availability.stateFile` setting to a **new, unused JSON path**:
-
-```yaml
-availability:
-  stateFile: /app/data/reservation-availability.json
-```
-
-Keep the other settings in your existing `availability` block. If `stateFile` is
-omitted, the new default is `data/reservation-availability.json`. The old SQLite file
-is left untouched and is not imported. The first live check can send one fresh alert
-for products already available; subsequent checks suppress repeats as usual. There
-is no conversion utility. Renaming a SQLite file to `.json` does not convert it.
-An existing SQLite or malformed JSON file is rejected without sending or overwriting
-it. Cabin state (`cabinAvailabilityStateFile`) and price history (`historyDb`) are
-unchanged. Existing data-directory mounts and schedules continue to work.
-
-### JSON state and resets
-
-The JSON has `version: 1` and a `watches` mapping. Each hashed watch context contains
-product IDs with `last_state` (`available` or `unavailable`) and a boolean `notified`.
-With `notifyOnReopen: false`, `notified: true` is retained even when a product closes.
-No credentials, guest names, raw account emails, or booking numbers are stored.
-The file still represents private watch activity and should not be shared or committed.
-
-A persistent `.lock` sidecar protects the entire read, notification and atomic
-replacement. Leave the sidecar in place; an empty lock file does not indicate a stuck
-check. An overlapping writer skips that watch with a diagnostic and a failed run
-status, rather than waiting or sending a duplicate. The next scheduled run retries.
-Unknown API results preserve existing entries. Invalid state fails visibly instead
-of silently resetting acknowledgements. Dry runs do not read or write state.
-
-To reset an alert deliberately, stop checks first, back up the JSON, and set the
-matching product's `notified` to `false` or remove that product entry. Removing the
-whole JSON resets all reservation watches. Keep valid JSON booleans (`true`/`false`)
-and the version field intact. The context key is hashed, so use the watch's configured
-product ID to identify entries and avoid resetting other contexts for the same product.
-
-Configuration errors name their location, for example
-`availability.watches[1].guests[0]`, and identify an invalid key without printing its
-value. List indexes start at zero. Missing booking numbers are assessed across all
-successfully retrieved accounts in both modes. A failed API lookup is not interpreted
-as a known unavailable product.
-
-Expected availability failures print concise diagnostics and exit nonzero without a
-Python traceback. `notifyOnError` continues to control the existing global error
-notification. Unexpected programming errors retain tracebacks. No notification
-service, failed delivery, and state-storage problems have distinct messages; an alert
-is never acknowledged until delivery is confirmed.
-
-Catalogs are reused only for watches with the same account, booking, and category
-within a single pass. Failed catalog results are also reused within that pass to
-avoid repeating the same failed request sequence. Each later run fetches fresh data.
-Eligibility queries are not cached and still use each watch's own party.
-
-Notification identity continues to include the account. If the same booking is
-visible to two configured accounts, both can notify. To avoid that today, run
-availability with a configuration containing one account that can see the intended
-bookings. There is no new implicit account-selection or cross-account deduplication
-policy in this update.
-
-## First live validation and cartId
-
-Live entertainment checks have succeeded using the checker's authentication and
-default empty `cartId`, including examples with listed inventory and no listed shows.
-This is evidence for those tested scenarios, not a guarantee for every account,
-sailing, or dining product. Royal Railway and party-aware checks still need live
-validation through the checker.
-
-If Royal rejects the empty cart ID, the result stays unknown; the script does not
-create a cart or fabricate a token. The optional per-watch `cartId` is for controlled
-local diagnosis. An expiring browser cart ID is not a durable production solution
-and must not be committed to source control.
-
-Compare returned inventory with Cruise Planner before relying on a new watch. A
-product absent from the complete catalog is considered not listed even if its
-standalone detail URL remains accessible. Only Royal Caribbean is supported in
-this initial availability extension.
-
-## Verification and maintenance
-
-Run the offline test suite with:
-
-```sh
-python -m pip install -r requirements.txt pytest
-python -m pytest unittests/ -q
-```
-
-`unittests/fixtures/availability` contains minimal anonymized fixture reductions.
-The original uploaded captures and credentials are not included. The new GitHub
-Actions workflow runs all tests, builds the Docker image, and exercises configuration
-validation inside the image. Successful `main` builds
-also publish the availability image to GHCR. The publishing workflow derives the image owner from the repository;
-see `GITHUB-DEPLOYMENT.md` for registry access and first-run instructions.
-
-See `AVAILABILITY-REVIEW.md` for completed review, tests, and remaining validation.
-See `UPSTREAM-BASELINE.md` for the exact upstream commit and fork maintenance approach.
+Configuration edits to a bind-mounted file may require a container restart if your
+editor replaces the file inode. Schedule or timezone changes generally require the
+Compose service to be recreated.
