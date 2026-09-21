@@ -1,8 +1,8 @@
 # Upstream baseline
 
 - Repository: https://github.com/jdeath/CheckRoyalCaribbeanPrice
-- Baseline commit: `ac7e426931c12ef21ccd2badb223b04046c0a860`
-- Commit subject: Merge pull request #129 from uberswimmer/upstream/cabin-transition-alerts
+- Baseline commit: `8d0d4976024264dbcfbba7919f9db34704dc9f40`
+- Commit subject: Merge pull request #136 from AESternberg/main
 - Published release included: `3.6.0` (`ac2a0ecbbbdd120622fd4f2c9d87161fdc0ef323`)
 - Local development branch: `feature/availability-watches`
 - Extension version: `0.1.0-test`
