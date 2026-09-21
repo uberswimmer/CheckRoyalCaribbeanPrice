@@ -237,27 +237,30 @@ def test_scope_separates_accounts_sailings_and_categories(context):
     assert base != c.availability_scope(a,b,'dining')
     assert base == c.availability_scope(a,b,category.category)
 
+
 def test_individual_product_failure_does_not_block_other_shows(context,monkeypatch):
-    a,b,w,s,p = context
-    w = replace(w,product=None)
+    a,b,category,s,p = context
+    discovery = replace(category, products=None)
+    settings = replace(s, reservations=(
+        c.AvailabilityReservation(str(b['bookingId']), (discovery,)),))
     monkeypatch.setattr(c,'availability_products',Mock(return_value=[
         {'id':'first','title':'First','type':{'id':'pt_show'}},
         {'id':'Y7QG','title':'Headliner','type':{'id':'pt_show'}}]))
-    monkeypatch.setattr(c,'availability_eligibility',Mock(side_effect=[c.AvailabilityUnknown('failed'),capture('headliner')]))
-    assert not c.process_availability_bookings(a,[b],replace(s,watches=(w,)))
+    monkeypatch.setattr(c,'availability_eligibility',Mock(
+        side_effect=[c.AvailabilityUnknown('failed'),capture('headliner')]))
+    assert not c.process_availability_bookings(a,[b],settings)
     c.config.apobj.notify.assert_called_once()
     assert 'Headliner:' in c.config.apobj.notify.call_args.kwargs['body']
 
 
-def test_disabled_departed_and_other_bookings_make_no_product_requests(context,monkeypatch):
-    a,b,w,s,p = context
+def test_empty_departed_and_other_bookings_make_no_product_requests(context,monkeypatch):
+    a,b,category,s,p = context
     lookup = Mock(side_effect=AssertionError('must not query'))
     monkeypatch.setattr(c,'availability_products',lookup)
-    assert c.process_availability_bookings(a,[b],replace(s,watches=(replace(w,enabled=False),)))
+    assert c.process_availability_bookings(a,[b],replace(s,reservations=()))
     assert c.process_availability_bookings(a,[dict(b,sailDate='20000101')],s)
     assert c.process_availability_bookings(a,[dict(b,bookingId='another')],s)
     lookup.assert_not_called()
-
 
 def valid_config():
     return {'dryRun': True, 'reservations': [{'reservation': 123, 'shows': True}]}
