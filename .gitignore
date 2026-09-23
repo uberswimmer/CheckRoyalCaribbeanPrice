@@ -1,4 +1,5 @@
 config.yaml
+config.yaml.*
 config.availability.yaml
 .env
 .venv/
