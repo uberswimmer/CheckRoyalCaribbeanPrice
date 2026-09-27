@@ -2987,8 +2987,10 @@ def notify_cabin_availability(params: CruiseURLParams, result: dict, url: str,
                     lines.append("Current price unavailable; check the booking page.")
                 lines.append(url)
                 try:
-                    sent = notifier.notify(body="\n".join(lines),
-                        title="Cruise Room Available", body_format=NotifyFormat.TEXT) is True
+                    # Apprise 1.x returns bool; Apprise 2.x returns an
+                    # AppriseResult whose truth value is True only for SUCCESS.
+                    sent = bool(notifier.notify(body="\n".join(lines),
+                        title="Cruise Room Available", body_format=NotifyFormat.TEXT))
                 except Exception:
                     sent = False
                 notified = sent
@@ -5342,8 +5344,10 @@ def deliver_availability(settings: AvailabilitySettings, account: AccountInfo, b
                     sent = False
                 else:
                     with suppress_availability_notification_info():
-                        sent = notifier.notify(body="\n".join(lines),
-                            title="Cruise Reservation Availability", body_format=NotifyFormat.TEXT) is True
+                        # Apprise 1.x returns bool; Apprise 2.x returns an
+                        # AppriseResult whose truth value is True only for SUCCESS.
+                        sent = bool(notifier.notify(body="\n".join(lines),
+                            title="Cruise Reservation Availability", body_format=NotifyFormat.TEXT))
             except Exception:
                 sent = False
             if sent:
