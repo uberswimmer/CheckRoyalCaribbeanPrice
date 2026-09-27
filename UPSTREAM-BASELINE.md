@@ -1,8 +1,8 @@
 # Upstream baseline
 
 - Repository: https://github.com/jdeath/CheckRoyalCaribbeanPrice
-- Baseline commit: `2444e786ea5ee9dfbd2da211651add0a6ee1ac15`
-- Commit subject: Merge pull request #139 from tecmage/gitignore-account-configs
+- Baseline commit: `31845ffe9e170e73da337a0f63b449c5ae6a5325`
+- Commit subject: Merge pull request #142 from tecmage/casino-offers-flag
 - Published release included: `3.6.0` (`ac2a0ecbbbdd120622fd4f2c9d87161fdc0ef323`)
 - Local development branch: `feature/availability-watches`
 - Extension version: `0.1.0-test`
