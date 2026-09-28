@@ -1,8 +1,8 @@
 # Upstream baseline
 
 - Repository: https://github.com/jdeath/CheckRoyalCaribbeanPrice
-- Baseline commit: `31845ffe9e170e73da337a0f63b449c5ae6a5325`
-- Commit subject: Merge pull request #142 from tecmage/casino-offers-flag
+- Baseline commit: `53abbde41340634fc478b4f2d9ce5fc52d4fac12`
+- Commit subject: Merge pull request #141 from simondettling/fix/casino-offers-startup
 - Published release included: `3.6.0` (`ac2a0ecbbbdd120622fd4f2c9d87161fdc0ef323`)
 - Local development branch: `feature/availability-watches`
 - Extension version: `0.1.0-test`
@@ -28,7 +28,7 @@ Direct dependencies tested locally with Python 3.12.14:
 
 - requests 2.34.2
 - PyYAML 6.0.3
-- Apprise 1.13.1
+- Apprise 2.0.0
 - curl_cffi 0.16.3
 - pytest 9.1.1
 
