@@ -229,20 +229,6 @@ def test_conflicting_selected_cabin_details_do_not_delete_previous_calendar(acti
     assert activity_events(export) == activity_events(first)
 
 
-def test_availability_only_reuses_login_and_captures_booked_activities(activities, monkeypatch):
-    calendar, _ = activities
-    settings, account, booking, *_ = calendar
-    c.config.accounts = [account]
-    monkeypatch.setattr(c,'login',Mock(return_value=account.access))
-    monkeypatch.setattr(c,'availability_json',Mock(return_value={'payload':{'profileBookings':[booking]}}))
-    monkeypatch.setattr(c,'process_availability_bookings',Mock(return_value=True))
-    availability = c.AvailabilitySettings((), dry_run=True, only=True)
-    export = c.CalendarExport(settings)
-    c.run_availability_only(availability,export)
-    assert len(activity_events(export)) == 1
-    account.access.session.close.assert_called_once()
-
-
 def test_normal_run_includes_schedule_even_when_price_alert_is_ignored(activities, monkeypatch):
     calendar, _ = activities
     settings, account, booking, *_ = calendar

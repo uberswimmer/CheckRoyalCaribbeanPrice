@@ -39,18 +39,17 @@ additional mount or service is needed for local generation. Only one checker
 process/container should write to a given calendar directory at a time.
 
 Run `./entrypoint.sh check --validate-config`, then `./entrypoint.sh check`.
-Validation does not fetch calendars or create export files. Calendar capture works
-in both the normal combined run and `availability.only: true`. It still works when
-all availability watches are disabled. `availability.dryRun` applies only to
-availability notifications/state; an enabled calendar export writes its own files.
+Validation does not fetch calendars or create export files. Calendar capture runs
+with normal price checking, even when reservation alerts are disabled.
+`reservationAlerts.dryRun` applies only to reservation notifications/state; an
+enabled calendar export still writes its own files.
 
 Only selected bookings/sailings found in authenticated Royal Caribbean accounts are
 captured. The checker reuses its existing login session. It requests the itinerary
 once per sailing per run, even for multiple linked accounts or cabins. Normal runs
 reuse the check-in datetime already collected for the final summary table and make
-no additional check-in request. Availability-only runs skip that table, so calendar
-export calls the existing `get_checkin_info` routine once per sailing instead.
-No alternate check-in endpoint or date parser is introduced.
+no additional check-in request. No alternate check-in endpoint or date parser is
+introduced.
 
 ## Events and times
 
@@ -61,9 +60,8 @@ No alternate check-in endpoint or date parser is introduced.
 - Final payment: an all-day event for each booking. Existing date overrides,
   market/duration rules and normal-run payment status are reused. The description
   distinguishes configured, booking-reported and estimated dates. A paid booking
-  retains its deadline with a Paid description. In availability-only mode, payment
-  status uses booking fields and `reservationsPaidInFull`; the price ledger is not
-  fetched just for the calendar, so the status may be unknown.
+  retains its deadline with a Paid description. Unknown payment status remains
+  unknown rather than being inferred paid.
 - Check-in: the exact timezone-aware datetime returned by the existing checker.
   The same instant is serialized as UTC in the calendar. No 00:01 override, date
   extraction, or departure-zone reinterpretation is applied. When the existing
@@ -134,10 +132,9 @@ result into Apple Calendar is still a useful deployment check. No additional Roy
 website captures are required to implement this reuse. See local web setup to
 subscribe to the generated feed from your LAN.
 
-The availability console section uses separate spacer records between sections
-and watches, nested indentation for account/watch/result/time, and reports completion
-before the check-in/payment table. Failures still allow price summaries and exports
-to finish before the run exits nonzero.
+Reservation-alert failures still allow price summaries, calendar export and the
+saved web report to finish before the nonzero result reaches the Docker controller.
+Reservation-alert behavior is documented in [the upstream reference](docs/reservation-alerts.md).
 
 ## Booked activities and reservations
 

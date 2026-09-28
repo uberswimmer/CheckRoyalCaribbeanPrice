@@ -5,9 +5,6 @@
   "payload": {
     "productCode": "Y7QG",
     "categoryId": "pt_show",
-    "salesUnit": "PER_SEAT",
-    "guestLimit": null,
-    "diningType": null,
     "guests": [
       {
         "id": "guest-1",
@@ -24,86 +21,6 @@
             }
           }
         ]
-      },
-      {
-        "id": "guest-2",
-        "reservationId": "booking-2",
-        "remainingBookableQty": 1,
-        "issues": [
-          {
-            "type": "USER_HAS_HARD_CONFLICT",
-            "guestId": "guest-2",
-            "conflict": {
-              "offering": {
-                "id": "example-offering-013"
-              }
-            }
-          }
-        ]
-      },
-      {
-        "id": "guest-3",
-        "reservationId": "booking-6",
-        "remainingBookableQty": 1,
-        "issues": [
-          {
-            "type": "USER_HAS_HARD_CONFLICT",
-            "guestId": "guest-3",
-            "conflict": {
-              "offering": {
-                "id": "example-offering-013"
-              }
-            }
-          }
-        ]
-      },
-      {
-        "id": "guest-4",
-        "reservationId": "booking-6",
-        "remainingBookableQty": 1,
-        "issues": [
-          {
-            "type": "USER_HAS_HARD_CONFLICT",
-            "guestId": "guest-4",
-            "conflict": {
-              "offering": {
-                "id": "example-offering-013"
-              }
-            }
-          }
-        ]
-      },
-      {
-        "id": "guest-5",
-        "reservationId": "booking-6",
-        "remainingBookableQty": 1,
-        "issues": [
-          {
-            "type": "USER_HAS_HARD_CONFLICT",
-            "guestId": "guest-5",
-            "conflict": {
-              "offering": {
-                "id": "example-offering-013"
-              }
-            }
-          }
-        ]
-      },
-      {
-        "id": "guest-6",
-        "reservationId": "booking-6",
-        "remainingBookableQty": 1,
-        "issues": [
-          {
-            "type": "USER_HAS_HARD_CONFLICT",
-            "guestId": "guest-6",
-            "conflict": {
-              "offering": {
-                "id": "example-offering-013"
-              }
-            }
-          }
-        ]
       }
     ],
     "offerings": [
@@ -113,28 +30,6 @@
         "dateTime": "2098-04-06T19:15:00",
         "stockLevelStatus": "inStock",
         "stockLevel": 74,
-        "pricing": {
-          "currencyIso": "USD",
-          "adultPromotionalPrice": null,
-          "childPromotionalPrice": null,
-          "infantPromotionalPrice": null,
-          "adultShipboardPrice": 0.0,
-          "childShipboardPrice": 0.0,
-          "infantShipboardPrice": null,
-          "adultShipboardTax": null,
-          "childShipboardTax": null,
-          "infantShipboardTax": null,
-          "adultDiscountAmount": null,
-          "childDiscountAmount": null,
-          "infantDiscountAmount": null,
-          "adultDiscountPercentage": 0,
-          "childDiscountPercentage": 0,
-          "infantDiscountPercentage": 0,
-          "couponCode": null,
-          "priceRollupType": "TAX_ROLLUP"
-        },
-        "isInCart": false,
-        "isReserved": null,
         "issues": [
           {
             "type": "USER_HAS_HARD_CONFLICT",
@@ -148,28 +43,6 @@
         "dateTime": "2098-04-06T21:30:00",
         "stockLevelStatus": "inStock",
         "stockLevel": 87,
-        "pricing": {
-          "currencyIso": "USD",
-          "adultPromotionalPrice": null,
-          "childPromotionalPrice": null,
-          "infantPromotionalPrice": null,
-          "adultShipboardPrice": 0.0,
-          "childShipboardPrice": 0.0,
-          "infantShipboardPrice": null,
-          "adultShipboardTax": null,
-          "childShipboardTax": null,
-          "infantShipboardTax": null,
-          "adultDiscountAmount": 0,
-          "childDiscountAmount": 0,
-          "infantDiscountAmount": 0,
-          "adultDiscountPercentage": 0,
-          "childDiscountPercentage": 0,
-          "infantDiscountPercentage": 0,
-          "couponCode": null,
-          "priceRollupType": "TAX_ROLLUP"
-        },
-        "isInCart": false,
-        "isReserved": null,
         "issues": []
       }
     ]

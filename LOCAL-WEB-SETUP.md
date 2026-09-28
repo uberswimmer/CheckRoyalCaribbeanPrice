@@ -1,4 +1,4 @@
-# Local reports and calendar subscription
+# Fork Docker deployment, reports and calendar subscription
 
 The optional report server serves saved files over HTTP on your LAN. It permits
 direct access without authentication. An optional **Run check now** button starts
@@ -38,10 +38,11 @@ calendar:
 ```
 
 There is still only one configuration file mounted at `/app/config.yaml`. See
-[calendar setup](CALENDAR-SETUP.md) for event details. Reporting works with both
-full checks and availability-only checks; it reports whichever mode ran.
+[calendar setup](CALENDAR-SETUP.md) for event details. Reporting captures
+the normal checker, including enabled reservation alerts and calendar capture.
 `--validate-config` and notification self-tests leave the saved report alone.
-An availability dry run still produces a report and an enabled calendar export.
+`reservationAlerts.dryRun: true` still produces a report and calendar export;
+normal price notifications remain active.
 
 Before deploying, create the public directory on the Docker host:
 
@@ -57,9 +58,11 @@ files retain their private permissions.
 ## Portainer deployment
 
 Use [compose.local-web.yaml](compose.local-web.yaml) to update the existing
-availability-checker stack. It includes both the checker and the report server.
-Do not deploy a second writer alongside the current availability checker using
-the same data directory. The original upstream price-checker stack can stay as is.
+checker stack. It includes one normal checker and the report server. Retire any
+older duplicate price/availability checker for the same accounts and schedule so
+checks and notifications are not duplicated. Never share a writable data directory
+between checker containers. Existing service names and host config filenames may
+keep the word "availability"; those names no longer select an execution mode.
 
 Set these Portainer stack environment variables, using your own fork owner:
 
@@ -80,7 +83,7 @@ REPORT_PORT=8088
 
 The report image is published along with the checker when the PR is merged to
 `main`. PR checks build and exercise it without publishing. Do not deploy the
-new image name until that publication has succeeded. A new GHCR package may need
+updated image until that publication has succeeded. A new GHCR package may need
 its visibility set to Public before an unauthenticated Portainer pull succeeds.
 Existing Watchtower can update these images according to its existing selection
 rules. This stack does not create another Watchtower service.
@@ -118,9 +121,8 @@ Use the exact configured report address in the browser. A different hostname or
 port will not be accepted for control requests. No additional host port is needed.
 
 The button runs the same `CheckRoyalCaribbeanPrice.py` command as the normal
-schedule, using `/app/config.yaml` and normal notifications. With
-`availability.only: false`, this includes price checks and enabled availability
-and calendar features. With `only: true`, it follows availability-only mode.
+schedule, using `/app/config.yaml` and normal notifications. This includes price
+checks and enabled `reservationAlerts` and calendar features.
 There is no browser option to change configuration or send command arguments.
 
 The page shows running/completed/failed status and refreshes after completion.
@@ -201,3 +203,88 @@ Disabling calendar generation removes the public feed after the next reported ru
 while preserving private calendar files. Removing `reportDirectory` stops report
 updates but leaves exported files in place; remove the web service or its public
 files if access should also stop. Use one writer per export directory.
+
+
+## Image publication and workflow responsibilities
+
+The `Fork Docker build and publish` workflow (`.github/workflows/availability.yml`)
+runs the full Python 3.12 suite, builds both images, validates the normal checker
+config and Compose file, and exercises report-server and browser run controls.
+Publication follows successful tests on `main` only, including manual runs on main.
+PRs build and test without publishing. Both Linux AMD64 and ARM64 images are built;
+container/browser smoke tests exercise the native runner architecture.
+
+Image repositories remain `ghcr.io/OWNER/royalcaribbean-availability` and
+`ghcr.io/OWNER/royalcaribbean-availability-reports`, with `latest` and
+`sha-<full commit SHA>` tags. The workflow uses `GITHUB_TOKEN` with package write
+permission. A personal access token is not required. Inspect workflow summaries for
+published digests. Rerunning a source SHA can produce a different image because
+base images and dependencies are unpinned; use a digest for an immutable rollback.
+
+Keep the upstream Python 3.11 minimum/latest Apprise workflow. Retain inherited
+Windows/macOS and Docker release YAML files for upstream parity, but disable those
+unused release workflows in the fork's Actions settings. This does not disable
+checker/report publication or either test workflow.
+
+## Migration from the pre-upstream fork
+
+Upstream PR #138 now owns reservation alerts. Follow
+[its configuration reference](docs/reservation-alerts.md) for behavior and settings.
+The old top-level `availability:` configuration and its `only:` execution switch
+are no longer accepted. No automatic state converter is supplied.
+
+**Before merging this integration or allowing Watchtower to deploy it:**
+
+1. Pause automatic replacement for the checker and stop its scheduled/manual runs.
+   Stop the checker before changing configuration or state. Keep the report server
+   if you want to view the last saved report.
+2. Record the actually running checker image ID and repository digest, its source
+   revision, and the current Compose settings. Keep the old image locally. The
+   currently published `latest` tag is not proof of the running host version.
+3. Back up the live configuration and reservation-alert state with its `.lock` and
+   any sidecars. Keep backups outside the public report directory. Preserve calendar
+   data, cabin-availability state and optional price-history SQLite unchanged.
+4. Stage the renamed block in the existing host config file, remove `only`, and
+   preserve accounts, prices, notifications, calendar, report and product selections:
+
+   ```yaml
+   reservationAlerts:
+     dryRun: true
+     stateFile: /app/data/reservation-availability.json
+     reservations:
+       - reservation: "1234567" # Fictional example
+         dining:
+           products:
+             - "UT_RAILDINNER"
+         shows: true
+   ```
+
+5. With the checker stopped and backups verified, remove the old reservation-alert
+   state file and its stale lock sidecar from their live paths. Upstream starts fresh
+   with readable version-2 state. Do not remove cabin state or calendar files. The
+   lock file normally remains after a run; its existence alone does not mean a lock
+   is held. Do not remove it from a running deployment.
+6. Merge the reviewed integration PR with a normal merge, retaining upstream history.
+   Verify the main workflow succeeds and publishes both images, then verify their
+   revision labels/digests before updating the host.
+7. Validate the migrated config with the new image using `check --validate-config`
+   before starting normal operation. Recreate the checker with the new image and
+   run `check` with `reservationAlerts.dryRun: true`. This is not a global dry run:
+   price alerts and calendar/report writes still occur. Inspect the report, prices,
+   restaurants/shows/times, feed and run-control behavior against Cruise Planner.
+8. Set `reservationAlerts.dryRun: false` when validated. The first live run creates
+   the v2 state and can repeat alerts for products already available. Confirm
+   notification delivery, then resume normal scheduling and automatic updates.
+
+If two checker stacks previously split prices and availability, consolidate their
+settings into one normal checker before resuming. Do not keep both checking the same
+accounts on the same schedule. Existing host filenames, services, mounts, ports and
+image names can remain unchanged.
+
+### Rollback
+
+Stop the new checker. Restore the recorded old image digest, old configuration and
+old reservation-alert state backup together, then recreate and verify the checker.
+Do not feed v2 state to the old implementation or v1 state to the new one. Calendar
+state is not part of the reservation-alert reset. Fix problems on a review branch
+before another deployment. Image publication alone does not establish host success.

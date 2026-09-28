@@ -226,25 +226,6 @@ def test_disabled_and_valid_config(tmp_path):
     assert not Path(result.output_directory).exists()
 
 
-@pytest.mark.parametrize('by_reservation', [False, True])
-def test_capture_works_with_availability_only_and_all_watches_disabled(calendar, monkeypatch, by_reservation):
-    settings, account, booking, *_ = calendar
-    if by_reservation:
-        settings = reservation_settings(calendar)
-    c.config.accounts = [account]
-    monkeypatch.setattr(c, 'login', Mock(return_value=account.access))
-    monkeypatch.setattr(c, 'availability_json', Mock(return_value={'payload':{'profileBookings':[booking]}}))
-    process = Mock(return_value=True)
-    monkeypatch.setattr(c, 'process_availability_bookings', process)
-    availability = c.AvailabilitySettings((), dry_run=True, only=True)
-    export = c.CalendarExport(settings)
-    c.run_availability_only(availability, export)
-    assert len(export.data['events']) == 5
-    processed_bookings = process.call_args.args[1]
-    assert processed_bookings[0]['shipName'] == 'Example Ship'
-    account.access.session.close.assert_called_once()
-
-
 @pytest.mark.parametrize('failed', [False, True])
 @pytest.mark.parametrize('by_reservation', [False, True])
 def test_main_exports_after_prices_and_reports_calendar_failure(calendar, monkeypatch, failed, by_reservation):
@@ -425,3 +406,51 @@ def test_reservation_config_accepts_quoted_numbers_and_integers_without_io(tmp_p
     assert not Path(settings.output_directory).exists()
     with pytest.raises(ValueError, match='not both'):
         c.parse_calendar_config({'reservations':['1000001'], 'sailings':[]})
+
+
+@pytest.mark.parametrize('unexpected', [False, True])
+def test_reservation_failure_finalizes_calendar_and_web_report(calendar, monkeypatch, tmp_path, unexpected):
+    """Upstream alert failures must not bypass the fork's final exports."""
+    settings, account, booking, *_ = calendar
+    c.config.calendar = settings
+    c.config.accounts = [account]
+    c.config.report_directory = str(tmp_path / 'public')
+    c.config.output_watch_as_json = True
+    c.config.availability = c.AvailabilitySettings((
+        c.AvailabilityReservation(booking['bookingId'], (c.AvailabilityCategory('show'),)),
+    ))
+    monkeypatch.setattr(c, 'login', Mock(return_value=account.access))
+    monkeypatch.setattr(c, 'get_profile', Mock(return_value=('OH', '', 0)))
+    monkeypatch.setattr(c, 'get_ship_dictionary_web', Mock())
+    order = []
+    monkeypatch.setattr(c, 'get_voyages', Mock(side_effect=lambda *a, **k: order.append('prices') or [booking]))
+    def alerts(*args):
+        order.append('alerts')
+        account.access.session.close.assert_not_called()
+        if unexpected:
+            raise RuntimeError('PRIVATE_TOKEN')
+        return False
+    monkeypatch.setattr(c, 'process_availability_bookings', alerts)
+    monkeypatch.setattr(c.CheckinPaymentTracker, 'print_table', lambda self: order.append('summary'))
+    monkeypatch.setattr(c, 'write_watch_price_json', lambda *args: order.append('json'))
+    finish = c.CalendarExport.finish
+    def export(self):
+        order.append('calendar')
+        finish(self)
+    monkeypatch.setattr(c.CalendarExport, 'finish', export)
+    publish = c.WebReport.publish
+    def report(self, *args, **kwargs):
+        if kwargs.get('finished'):
+            order.append('report')
+        publish(self, *args, **kwargs)
+    monkeypatch.setattr(c.WebReport, 'publish', report)
+    with pytest.raises(SystemExit) as caught:
+        c.run_with_web_report()
+    assert caught.value.code == c.EXIT_PARTIAL_FAILURE
+    assert order == ['prices', 'alerts', 'summary', 'json', 'calendar', 'report']
+    assert c.history.finish_run.call_args.args[0] == 'partial_failure'
+    account.access.session.close.assert_called_once()
+    assert (Path(settings.output_directory) / 'calendar-data.json').exists()
+    assert (tmp_path / 'public' / 'cruises.ics').exists()
+    page = (tmp_path / 'public' / 'index.html').read_text()
+    assert '<strong>Failed</strong>' in page and 'PRIVATE_TOKEN' not in page
