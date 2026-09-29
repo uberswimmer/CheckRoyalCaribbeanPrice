@@ -316,7 +316,7 @@ def test_reservation_config_models_categories_and_selective_products():
 
 @pytest.mark.parametrize('raw, expected', [
     ({'reservations': []}, 'reservationAlerts.reservations must be a nonempty list'),
-    ({'reservations': [{'reservation': '1'}]}, 'at least one of dining or shows must be enabled'),
+    ({'reservations': [{'reservation': '1'}]}, 'at least one of dining, shows or onboardActivities must be enabled'),
     ({'reservations': [{'reservation': '1', 'dining': 'true'}]},
      'dining must be true, false, or a mapping'),
     ({'reservations': [{'reservation': '1', 'dining': {}}]},

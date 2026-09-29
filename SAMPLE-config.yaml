@@ -61,5 +61,6 @@ logFile: "output.txt"
 #     - reservation: "1234567"
 #       dining: true # Or {products: ["UT_RAILDINNER"]} to reduce requests
 #       shows: true
+#       onboardActivities: false # Fork extension: true or {products: ["YOUR_ACTIVITY_ID"]}
 #       notifyOnReopen: false
 # See docs/reservation-alerts.md. Disable dining once your desired reservations are booked.

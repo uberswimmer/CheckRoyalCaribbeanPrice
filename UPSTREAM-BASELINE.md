@@ -36,8 +36,11 @@ The inherited browser/phone/casino tools, packaging files and platform tests rem
 6. Review the final fork-versus-upstream diff, run all tests, and use a normal merge
    for the integration PR so upstream history remains visible.
 
-PR #11 remains separate. Port its onboard-activity support onto upstream's category
-model only after this integration has been merged and validated on the host.
+PR #11 adds opt-in onboard-activity release monitoring as a small extension of
+upstream's reservation/category model. It shares the entertainment catalog with
+shows and reuses upstream eligibility, pacing, v2 state and notifications. It does
+not restore party-mode or availability-only behavior. Live validation of this new
+category remains separate from the successful upstream dining/show migration.
 
 ## Validation and deployment
 
