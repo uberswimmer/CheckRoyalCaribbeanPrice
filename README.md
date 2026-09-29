@@ -1,4 +1,10 @@
-> Availability extension test build: see [separate-container setup](AVAILABILITY-SETUP.md) and [review](AVAILABILITY-REVIEW.md).
+> This fork follows [upstream](https://github.com/jdeath/CheckRoyalCaribbeanPrice)
+> and adds local calendars, saved reports, and Docker run controls.
+>
+> - [Fork Docker deployment, migration, reports and run controls](LOCAL-WEB-SETUP.md)
+> - [Dining/show reservation alerts](docs/reservation-alerts.md)
+> - [Calendar and booked-activity export](CALENDAR-SETUP.md)
+> - [Upstream baseline and contribution workflow](UPSTREAM-BASELINE.md)
 
 # CheckRoyalCaribbeanPrice
 Checks if you have the cheapest price for your **Royal Caribbean** and **Celebrity Cruises** purchases (beverage packages, excursions, internet, etc.).  Not affiliated with Royal Caribbean Group in any way. 

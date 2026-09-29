@@ -1,3 +1,10 @@
+> **Historical review of the pre-upstream availability implementation.**
+> This document records earlier experiments and validation only. Its configuration,
+> state formats, party-mode behavior, deployment instructions and test counts are
+> not current. For supported reservation alerts use
+> [the upstream reference](docs/reservation-alerts.md); for this fork's deployment
+> and migration use [local web setup](LOCAL-WEB-SETUP.md).
+
 # Availability build review
 
 ## Result

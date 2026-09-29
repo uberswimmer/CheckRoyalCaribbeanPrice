@@ -1,10 +1,10 @@
-name: Availability build and publish
+name: Fork Docker build and publish
 on:
   workflow_dispatch:
   pull_request:
     branches: [main]
   push:
-    branches: [main, feature/availability-watches]
+    branches: [main]
 permissions:
   contents: read
 concurrency:
@@ -27,14 +27,14 @@ jobs:
         run: |
           python - <<'PY'
           import yaml
-          config = yaml.safe_load(open('SAMPLE-availability-config.yaml'))
-          config.pop('apprise', None)
+          config = yaml.safe_load(open('SAMPLE-SIMPLE-config.yaml'))
+          config['reservationAlerts'] = {'dryRun': True, 'stateFile': '/app/data/reservation-availability.json',
+                                         'reservations': [{'reservation': '1000001', 'dining': True, 'shows': True}]}
           config['reportDirectory'] = '/app/data/public'
           config['calendar'] = {'outputDirectory': '/app/data/calendar', 'reservations': ['1000001']}
           with open('config.availability.yaml', 'w') as f:
               yaml.safe_dump(config, f)
           PY
-          docker compose -f compose.availability.yaml config --quiet
           docker run --rm -v "$PWD/config.availability.yaml:/app/config.yaml:ro" royal-availability:ci check --validate-config
       - name: Build and exercise local report server
         shell: bash
@@ -93,7 +93,7 @@ jobs:
         env:
           REPOSITORY_OWNER: ${{ github.repository_owner }}
         run: echo "image=ghcr.io/${REPOSITORY_OWNER,,}/royalcaribbean-availability" >> "$GITHUB_OUTPUT"
-      - name: Publish availability image
+      - name: Publish checker image
         id: image
         uses: docker/build-push-action@v6
         with:
@@ -107,7 +107,7 @@ jobs:
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.licenses=MIT
-            org.opencontainers.image.description=Royal Caribbean entertainment and dining availability checker
+            org.opencontainers.image.description=Cruise price checker with reservation alerts, calendar and local reports
       - name: Publish local report server image
         id: reports
         uses: docker/build-push-action@v6

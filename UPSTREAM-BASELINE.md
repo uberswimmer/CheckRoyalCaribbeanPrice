@@ -1,37 +1,52 @@
-# Upstream baseline
+# Upstream baseline and contribution workflow
 
-- Repository: https://github.com/jdeath/CheckRoyalCaribbeanPrice
-- Baseline commit: `53abbde41340634fc478b4f2d9ce5fc52d4fac12`
-- Commit subject: Merge pull request #141 from simondettling/fix/casino-offers-startup
-- Published release included: `3.6.0` (`ac2a0ecbbbdd120622fd4f2c9d87161fdc0ef323`)
-- Local development branch: `feature/availability-watches`
-- Extension version: `0.1.0-test`
+- Upstream: https://github.com/jdeath/CheckRoyalCaribbeanPrice
+- Integrated upstream commit: `5d6185f1e81fb60569c079b7fe8d379d64867079`
+- Commit: Merge pull request #138, dining and entertainment reservation-release alerts.
+- Previous common ancestor: `53abbde41340634fc478b4f2d9ce5fc52d4fac12`.
+- Latest published upstream release when integrated: `3.6.0`. The baseline above
+  includes subsequent upstream commits, not just that release.
 - License: upstream MIT license retained in `LICENSE`.
 
-This build starts from the inspected upstream main commit, not an inferred container
-release or moving `latest` tag. See `GITHUB-DEPLOYMENT.md` for the publishing
-workflow and dedicated GHCR image. The registry owner is derived from the repository
-at build time; no personal account name is configured in source.
+## Ownership
 
-In the fork, use `main` for the availability extension and merge upstream into
-a review branch first. Fetch upstream changes, merge them into the extension branch in a reviewable
-PR, run the complete test suite and Docker smoke test, then compare live diagnostics
-before replacing the container. Preserve the bind-mounted availability state file.
+Upstream owns pricing, cabin availability, upgrades, Club Royale, notification
+routing, and the complete `reservationAlerts` implementation, including config,
+request pacing, validation, aggregation and readable v2 JSON notification state.
+There is no second reservation-alert subsystem or dedicated alert-only run mode.
 
-The extension stays in `CheckRoyalCaribbeanPrice.py`, as requested. Integration hooks
-are limited to configuration, the existing booking pass, and the availability-only
-main branch. There is no new scheduler or Browse subprocess. The separate
-`availability.watches` configuration avoids changing the price watchlist's required
-fields or alert semantics.
+The fork retains local calendar/activity capture and its preservation safeguards,
+HTML/plain-text reports, Docker run controls, configuration-only validation, and
+checker/report image publication. Its small Windows-encoded configuration fallback
+remains covered by a regression test. Calendar identifiers and saved event identities
+are preserved; upstream's reservation-state migration does not reset calendar data.
 
-Direct dependencies tested locally with Python 3.12.14:
+Keep upstream's single-file checker layout and public interfaces. Coordinate larger
+changes with [upstream issue #140](https://github.com/jdeath/CheckRoyalCaribbeanPrice/issues/140).
+The inherited browser/phone/casino tools, packaging files and platform tests remain.
 
-- requests 2.34.2
-- PyYAML 6.0.3
-- Apprise 2.0.0
-- curl_cffi 0.16.3
-- pytest 9.1.1
+## Contributions and synchronization
 
-The upstream Docker base and requirements remain unpinned; dependency versions and
-the Python Alpine base can change on a future rebuild. Preserve your known-working
-image tag/digest when moving beyond the test stage. Review and test upstream update PRs before merging into the deployed branch.
+1. Keep deployed fork features on fork `main`.
+2. Branch upstream contributions from current **upstream main**.
+3. Bring over only the focused feature and tests intended for upstream.
+4. Keep Docker, report hosting and GHCR changes out of upstream submissions.
+5. After acceptance, merge current upstream into an isolated fork review branch,
+   retain real upstream ancestry, and remove superseded fork implementations.
+6. Review the final fork-versus-upstream diff, run all tests, and use a normal merge
+   for the integration PR so upstream history remains visible.
+
+PR #11 remains separate. Port its onboard-activity support onto upstream's category
+model only after this integration has been merged and validated on the host.
+
+## Validation and deployment
+
+Retain upstream's Python 3.11 minimum/latest Apprise test matrix and the fork's
+Python 3.12 Docker/browser workflow. Inherited release YAML files remain for parity;
+unused release workflows can be disabled in this fork's Actions settings.
+
+Main publishes the existing checker/report images automatically. Follow
+[the deployment and rollback checklist](LOCAL-WEB-SETUP.md#migration-from-the-pre-upstream-fork)
+before merging a configuration/state transition. Never equate published images with
+verified deployment on the Docker host. Dependencies/base images remain unpinned;
+record a known-good image digest before updating.
