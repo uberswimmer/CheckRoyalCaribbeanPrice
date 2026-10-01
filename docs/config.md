@@ -186,6 +186,22 @@ title/line limits are also rejected. Pending alerts remain unacknowledged until
 configuration is corrected. Existing price checks continue normally. See
 [notification configuration and pre-release upgrade instructions](reservation-alerts.md#notifications-and-state).
 
+## Scheduled activities report
+
+Add an opt-in console report of already-booked Royal Caribbean activities:
+
+```yaml
+scheduledActivities:
+  reservations: ["1234567", "7654321"]
+  stateFile: "data/scheduled-activities.json"
+```
+
+This is separate from `reservationAlerts`, which monitors inventory you could
+book. It does not depend on price thresholds, ignored price alerts, or Apprise.
+The state file preserves the last successful schedule if a refresh fails.
+Keep it private and use a different path from other features' state files.
+See [scheduled activities, request costs and failure behavior](scheduled-activities.md).
+
 ## Example Config with more options (not all of them)
 ```yaml
 accountInfo:
@@ -297,7 +313,7 @@ Casino offers are personal, but bookings often are not: when you travel with a
 companion (partner, family member, friend) and book together, one account usually
 sees every booking already. Add `casinoOffersOnly: true` to the companion's
 `accountInfo` entry to log that account in for its casino offers only - its
-bookings, prices, add-ons, upgrades and `reservationAlerts` are skipped, so
+bookings, prices, add-ons, upgrades, `reservationAlerts` and `scheduledActivities` are skipped, so
 nothing is checked twice.
 
 ```yaml
@@ -315,7 +331,7 @@ no effect and the account is checked in full (a warning is logged).
 
 Only use it for an account whose bookings another account already sees. A
 booking visible only to the `casinoOffersOnly` account (e.g. a solo sailing) is
-not checked at all, and a `reservationAlerts` or `upgradeReservations` entry for
+not checked at all, and a `reservationAlerts`, `scheduledActivities` or `upgradeReservations` entry for
 it is reported as not found. Shared bookings are priced with the other account's
 discounts only (state, senior/military/police/fire, 340-point C&A single
 supplement), so put the account holding those on the fully checked side. On a

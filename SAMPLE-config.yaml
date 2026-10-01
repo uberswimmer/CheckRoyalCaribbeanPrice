@@ -64,3 +64,8 @@ logFile: "output.txt"
 #       shows: true
 #       notifyOnReopen: false
 # See docs/reservation-alerts.md. Disable dining once your desired reservations are booked.
+
+# scheduledActivities: # Optional report of activities already booked, Royal Caribbean only
+#   reservations: ["1234567", "7654321"] # Only include guests from these reservations
+#   stateFile: "data/scheduled-activities.json" # Keep separate from other state files
+# See docs/scheduled-activities.md. No notifications or calendar export are enabled by this option.

@@ -631,6 +631,7 @@ class CruiseAppConfig:
     check_casino_offers: bool = False
     casino_offer_warn_days: int = 14
     availability: Optional["AvailabilitySettings"] = None
+    scheduled_activities: Optional["ScheduledActivitiesSettings"] = None
     output_watch_as_json: bool = False
     output_json_watch_file: Optional[str] = "output-json-watch.txt"
     apprise_urls: List[str] = field(default_factory=list)
@@ -5068,6 +5069,420 @@ def parse_price_alert_exclusions(raw: Any) -> List[PriceAlertExclusion]:
     return rules
 
 
+# Booked scheduled activities (opt-in, Royal Caribbean only)
+##################################
+class ScheduledActivitiesError(Exception):
+    """A complete, consistent personal itinerary could not be established."""
+
+
+@dataclass(frozen=True)
+class ScheduledActivitiesSettings:
+    reservations: Tuple[str, ...]
+    state_file: str = "data/scheduled-activities.json"
+
+
+def parse_scheduled_activities_config(raw: Any) -> Optional[ScheduledActivitiesSettings]:
+    if raw is None:
+        return None
+    if not isinstance(raw, dict) or set(raw) - {"reservations", "stateFile"}:
+        raise ValueError("scheduledActivities must be a mapping with reservations and optional stateFile")
+    reservations = raw.get("reservations")
+    if not isinstance(reservations, list) or not reservations:
+        raise ValueError("scheduledActivities.reservations must be a nonempty list")
+    parsed = []
+    for value in reservations:
+        if (type(value) not in (str, int) or not str(value).strip()
+                or re.search(r"[\x00-\x1f\x7f-\x9f]", str(value))):
+            raise ValueError("scheduledActivities.reservations must contain nonempty identifiers")
+        reservation = str(value).strip()
+        if reservation in parsed:
+            raise ValueError("scheduledActivities.reservations must not contain duplicates")
+        parsed.append(reservation)
+    state = raw.get("stateFile", "data/scheduled-activities.json")
+    if not isinstance(state, str) or not state.strip():
+        raise ValueError("scheduledActivities.stateFile must be a nonempty path")
+    return ScheduledActivitiesSettings(tuple(parsed), state.strip())
+
+
+def fetch_scheduled_activities(account: AccountInfo, booking: dict) -> list:
+    """Allowlist the personal itinerary, before any price-checker filtering."""
+    try:
+        ship = booking["shipCode"]
+        sail_date = availability_date(booking["sailDate"])
+        reservation = str(booking["bookingId"])
+        nights = int(booking["numberOfNights"])
+        if (not isinstance(ship, str) or not ship.strip() or not reservation.strip()
+                or type(booking["numberOfNights"]) not in (str, int)):
+            raise ValueError()
+        if nights <= 0 or not booking.get("passengerId"):
+            raise ValueError()
+    except (AvailabilityUnknown, ValueError, KeyError, TypeError):
+        raise ScheduledActivitiesError("missing or invalid booking context (ship, sailing date, reservation, passenger or nights)") from None
+    try:
+        data = availability_json(account, "GET",
+            "https://aws-prd.api.rccl.com/en/royal/web/commerce-api/calendar/v1/itinerary",
+            params={"passengerId": booking["passengerId"], "reservationId": reservation,
+                    "sailingId": ship + sail_date.strftime("%Y%m%d"),
+                    "currencyIso": booking.get("bookingCurrency") or "USD",
+                    "includeMedia": "false", "includeAllBookings": "true"}, on_failure="retry")
+    except AvailabilityUnknown as exc:
+        raise ScheduledActivitiesError(str(exc)) from None
+    return parse_booked_activities(data, ship=ship, sail_date=sail_date,
+                                   reservation=reservation, nights=nights)
+
+
+def parse_booked_activities(data: dict, *, ship: str, sail_date: date,
+                           reservation: str, nights: int) -> list:
+    """Normalize one reservation's booked activities without requests or output."""
+    # Paths are generated locally. Response values and raw exception text may
+    # contain guest details or booking identifiers and must not be logged here.
+    field = "response envelope"
+    try:
+        if data.get("error") or data.get("errors"):
+            raise ScheduledActivitiesError("activity response contains API errors")
+        if data.get("warnings"):
+            raise ScheduledActivitiesError("activity response contains warnings; completeness cannot be confirmed")
+        if data.get("status") != 200:
+            raise ScheduledActivitiesError("activity response status is not 200")
+        field = "payload.itineraryItems (expected a list)"
+        items = data["payload"]["itineraryItems"]
+        if not isinstance(items, list):
+            raise ValueError()
+        activities = {}
+        def text(value):
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError()
+            # Do not allow remote control characters to alter terminal reports.
+            cleaned = " ".join(re.sub(r"[\x00-\x1f\x7f-\x9f]", " ", value).split())
+            if not cleaned:
+                raise ValueError()
+            return cleaned
+
+        def identifier(value):
+            if type(value) not in (str, int):
+                raise ValueError()
+            raw = str(value)
+            if text(raw) != raw:
+                raise ValueError()
+            return raw
+
+        for index, item in enumerate(items):
+            path = f"payload.itineraryItems[{index}]"
+            field = path + ".guests (expected a list)"
+            guests = item["guests"]
+            if not isinstance(guests, list):
+                raise ValueError()
+            booked = []
+            for guest_index, guest in enumerate(guests):
+                field = path + f".guests[{guest_index}].reservationId"
+                guest_reservation = identifier(guest["reservationId"])
+                if guest_reservation != reservation:
+                    continue
+                field = path + f".guests[{guest_index}].status (expected BOOKED or canceled)"
+                if guest["status"] not in {"BOOKED", "CANCELLED", "CANCELED"}:
+                    raise ValueError()
+                if guest["status"] == "BOOKED":
+                    booked.append(guest)
+            if not booked:
+                continue
+            field = path + ".productSummary"
+            product = item["productSummary"]
+            field = path + ".offering.dateTime (expected a local date and time)"
+            offering = item["offering"]
+            # Royal includes untimed package purchases in this itinerary too.
+            # Only omit observed non-appointment types with explicitly null
+            # times and no other scheduling information. Dated package entries
+            # still belong in the schedule; malformed appointments must fail.
+            category = product.get("productTypeCategory") or {}
+            if (category.get("id") in {"pt_packages", "pt_internet", "pt_beverage"}
+                    and offering["dateTime"] is None and offering["endDateTime"] is None
+                    and offering.get("dayOfCruise") is None
+                    and not offering.get("meetingTime")
+                    and all(not (g.get("fulfillment") or {}).get(key)
+                            for g in booked for key in ("meetingDate", "meetingTime"))):
+                continue
+            if not isinstance(offering["dateTime"], str) or "T" not in offering["dateTime"]:
+                raise ValueError()
+            start = datetime.fromisoformat(offering["dateTime"])
+            field = path + ".offering.endDateTime"
+            end_raw = offering.get("endDateTime")
+            if end_raw is not None and (not isinstance(end_raw, str) or "T" not in end_raw):
+                raise ValueError()
+            end = datetime.fromisoformat(end_raw) if end_raw is not None else None
+            # The observed endpoint supplies local clock times, without an offset.
+            # Fail visibly on a changed time contract rather than silently shifting it.
+            field = path + ".offering times (unexpected timezone offset)"
+            if start.tzinfo is not None or (end and end.tzinfo is not None):
+                raise ValueError()
+            field = path + ".offering.dateTime (outside sailing dates)"
+            if not sail_date <= start.date() <= sail_date + timedelta(days=nights):
+                raise ValueError()
+            field = path + ".offering.endDateTime (before start or outside sailing dates)"
+            if end and (end < start or end.date() > sail_date + timedelta(days=nights)):
+                raise ValueError()
+            field = path + ".productSummary or guest fulfillment/location"
+            fulfillments = [g.get("fulfillment") or {} for g in booked]
+            leisure = product.get("atYourLeisure") is True or any(
+                str(f.get("meetingTime") or "").strip().casefold() == "at your leisure" for f in fulfillments)
+            places = sorted({text(f.get("meetingLocation") or f.get("port")) for f in fulfillments
+                             if f.get("meetingLocation") or f.get("port")})
+            location = offering.get("meetingLocation") or offering.get("fulfillmentLocation")
+            location = text(location) if location else "; ".join(places)
+            field = path + ".productSummary.id or id"
+            identity = json.dumps([ship, sail_date.isoformat(),
+                identifier(product["id"]), identifier(item["id"])], separators=(",", ":"))
+            field = path + ".productSummary.title or booked guest id/firstName"
+            row = {"id": identity, "title": text(product["title"]),
+                   "start": start.strftime("%Y%m%dT%H%M%S"),
+                   "end": end.strftime("%Y%m%dT%H%M%S") if end and end > start and not leisure else None,
+                   "leisure": leisure, "location": location,
+                   "guests": {json.dumps([reservation, identifier(g["id"])], separators=(",", ":")): text(g["firstName"]).title()
+                              for g in booked}}
+            if len(row["guests"]) != len(booked):
+                raise ScheduledActivitiesError("duplicate booked guest identity in an activity")
+            field = path + " (conflicting duplicate session)"
+            if identity in activities and activities[identity] != row:
+                raise ValueError()
+            activities[identity] = row
+        return list(activities.values())
+    except (ValueError, KeyError, TypeError, AttributeError):
+        raise ScheduledActivitiesError("invalid or missing " + field) from None
+
+
+def group_booked_activities(snapshots: dict) -> list:
+    """Combine selected cabins by session without changing their saved snapshots."""
+    grouped = {}
+    for scope, snapshot in snapshots.items():
+        for row in snapshot["items"]:
+            identity = row["id"]
+            if identity not in grouped:
+                grouped[identity] = dict(row, guests=dict(row["guests"]), scopes=[scope])
+            else:
+                target = grouped[identity]
+                if any(target[k] != row[k] for k in ("title", "start", "end", "leisure", "location")):
+                    raise ScheduledActivitiesError("conflicting booked activity details across selected cabins")
+                target["guests"].update(row["guests"])
+                target["scopes"].append(scope)
+    return sorted(grouped.values(), key=lambda r: (r["start"], r["title"], r["id"]))
+
+
+def read_scheduled_activities_state(path: Path) -> dict:
+    """Reject incompatible or malformed state, never silently reset a schedule."""
+    try:
+        with path.open(encoding="utf-8") as stream:
+            state = json.load(stream)
+    except FileNotFoundError:
+        return {"version": 1, "snapshots": {}}
+
+    validate_scheduled_activities_state(state)
+    return state
+
+
+def validate_scheduled_activities_state(state: dict) -> None:
+    """Check the same allowlisted contract on disk and before each replacement."""
+    def clean_text(value, empty=False):
+        return (isinstance(value, str) and (empty or bool(value.strip()))
+                and value == " ".join(value.split())
+                and not re.search(r"[\x00-\x1f\x7f-\x9f]", value))
+
+    def require(condition):
+        if not condition:
+            raise ValueError()
+
+    try:
+        require(set(state) == {"version", "snapshots"} and type(state["version"]) is int and state["version"] == 1)
+        require(isinstance(state["snapshots"], dict))
+        reservations = set()
+        for scope, snapshot in state["snapshots"].items():
+            require(set(snapshot) == {"ship", "sailDate", "reservation", "nights", "shipName", "capturedAt", "items"})
+            require(all(clean_text(snapshot[k]) for k in ("ship", "sailDate", "reservation", "shipName")))
+            require(snapshot["reservation"] not in reservations)
+            reservations.add(snapshot["reservation"])
+            sailing = date.fromisoformat(snapshot["sailDate"])
+            require(sailing.isoformat() == snapshot["sailDate"])
+            require(type(snapshot["nights"]) is int and snapshot["nights"] > 0)
+            last_day = sailing + timedelta(days=snapshot["nights"])
+            capture = datetime.fromisoformat(snapshot["capturedAt"])
+            require(capture.tzinfo is not None and capture.utcoffset() == timedelta(0))
+            require(capture.isoformat() == snapshot["capturedAt"])
+            require(scope == json.dumps([snapshot["ship"], snapshot["sailDate"], snapshot["reservation"]], separators=(",", ":")))
+            require(isinstance(snapshot["items"], list))
+            identities = set()
+            for row in snapshot["items"]:
+                require(set(row) == {"id", "title", "start", "end", "leisure", "location", "guests"})
+                identity = json.loads(row["id"])
+                require(isinstance(identity, list) and len(identity) == 4 and all(clean_text(v) for v in identity))
+                require(identity[:2] == [snapshot["ship"], snapshot["sailDate"]])
+                require(row["id"] == json.dumps(identity, separators=(",", ":")) and row["id"] not in identities)
+                identities.add(row["id"])
+                require(clean_text(row["title"]) and clean_text(row["location"], empty=True))
+                require(type(row["leisure"]) is bool)
+                start = datetime.strptime(row["start"], "%Y%m%dT%H%M%S")
+                require(start.strftime("%Y%m%dT%H%M%S") == row["start"] and sailing <= start.date() <= last_day)
+                if row["end"] is not None:
+                    end = datetime.strptime(row["end"], "%Y%m%dT%H%M%S")
+                    require(end.strftime("%Y%m%dT%H%M%S") == row["end"])
+                    require(end > start and end.date() <= last_day and not row["leisure"])
+                require(isinstance(row["guests"], dict) and row["guests"])
+                for key, name in row["guests"].items():
+                    guest = json.loads(key)
+                    require(isinstance(guest, list) and len(guest) == 2 and guest[0] == snapshot["reservation"])
+                    require(all(clean_text(v) for v in guest) and clean_text(name))
+                    require(key == json.dumps(guest, separators=(",", ":")))
+        group_booked_activities(state["snapshots"])
+    except (ValueError, KeyError, TypeError, AttributeError, OverflowError):
+        raise ScheduledActivitiesError("Invalid scheduledActivities JSON state; previous file retained") from None
+
+
+class ScheduledActivitiesReport:
+    """Collect during authenticated checks; commit consistent snapshots at the end.
+
+    Stable API identifiers, not titles or times, identify sessions. Snapshots are
+    shared capture data suitable for a later calendar consumer. A failed request
+    is never evidence of cancellation. Only a complete accepted refresh removes
+    activities. No raw response, credentials or unrelated guest data is saved.
+    """
+    def __init__(self, settings: ScheduledActivitiesSettings):
+        self.settings = settings
+        self.pending = {}
+        self.bindings = {}
+        self.attempted = set()
+        self.found = set()
+        self.blocked = set()
+        self.errors = {}
+
+    def capture(self, account: AccountInfo, bookings: Optional[list], ships: ShipRegistry) -> None:
+        if not isinstance(bookings, list) or not all(isinstance(b, dict) for b in bookings):
+            self.errors["bookings"] = "Booking lookup failed; previous scheduled activities retained"
+            return
+        for booking in bookings:
+            reservation = str(booking.get("bookingId"))
+            if reservation not in self.settings.reservations:
+                continue
+            self.found.add(reservation)
+            if reservation in self.blocked:
+                continue
+            if not account.is_royal:
+                if not any(v["reservation"] == reservation for v in self.pending.values()):
+                    self.errors[reservation] = "scheduledActivities supports Royal Caribbean only"
+                continue
+            try:
+                ship = booking["shipCode"]
+                sailing = availability_date(booking["sailDate"])
+                nights = int(booking["numberOfNights"])
+                if (not isinstance(ship, str) or not re.fullmatch(r"[A-Z0-9]+", ship)
+                        or type(booking["numberOfNights"]) not in (str, int) or nights <= 0):
+                    raise ValueError()
+                scope = json.dumps([ship, sailing.isoformat(), reservation], separators=(",", ":"))
+                binding = (scope, nights)
+                if reservation in self.bindings and self.bindings[reservation] != binding:
+                    self.blocked.add(reservation)
+                    self.pending.pop(self.bindings[reservation][0], None)
+                    raise ScheduledActivitiesError("conflicting sailing details for a selected reservation")
+                self.bindings[reservation] = binding
+                if sailing + timedelta(days=nights) < date.today():
+                    continue
+                # Successful captures are shared across linked accounts. A failed
+                # account may be retried through another account, once per scope.
+                attempt = (account.username.lower(), scope)
+                if scope in self.pending or attempt in self.attempted:
+                    continue
+                self.attempted.add(attempt)
+                items = fetch_scheduled_activities(account, booking)
+                name = ships.get_ship(ship) or ship
+                name = " ".join(re.sub(r"[\x00-\x1f\x7f-\x9f]", " ", name).split()) or ship
+                self.pending[scope] = {"ship": ship, "sailDate": sailing.isoformat(), "reservation": reservation,
+                    "nights": nights, "shipName": name, "capturedAt": datetime.now(timezone.utc).isoformat(), "items": items}
+                self.errors.pop(reservation, None)
+            except ScheduledActivitiesError as exc:
+                self.errors[reservation] = str(exc)
+            except Exception:
+                self.errors[reservation] = "Scheduled activity capture failed; check booking context and preceding API warnings"
+
+    def finish(self) -> None:
+        snapshots = {}
+        accepted = set()
+        for reservation in set(self.settings.reservations) - self.found:
+            self.errors[reservation] = ("No booking matched scheduledActivities reservation " + reservation
+                + "; check linked accounts, login/booking failures and casinoOffersOnly")
+        try:
+            path = Path(self.settings.state_file).expanduser()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            # Use upstream's existing cross-platform lock and atomic JSON writer.
+            # Read under the lock, so other runs cannot lose unrelated snapshots.
+            with cabin_state_lock(path):
+                state = read_scheduled_activities_state(path)
+                snapshots = {key: value for key, value in state["snapshots"].items()
+                             if value["reservation"] in self.settings.reservations}
+                # Evaluate all new snapshots for a sailing together, so linked
+                # cabins can reschedule the same session in one run. Conflicts
+                # with another cabin's retained snapshot cannot delete old data.
+                sailings = sorted({(v["sailDate"], v["ship"]) for v in self.pending.values()})
+                for sailing, ship in sailings:
+                    updates = {key: value for key, value in self.pending.items()
+                               if (value["sailDate"], value["ship"]) == (sailing, ship)}
+                    reservations = {value["reservation"] for value in updates.values()}
+                    candidate = {key: value for key, value in snapshots.items()
+                                 if value["reservation"] not in reservations}
+                    for key, value in updates.items():
+                        old = next(((k, v) for k, v in snapshots.items()
+                                    if v["reservation"] == value["reservation"]), None)
+                        if old and old[1]["capturedAt"] > value["capturedAt"]:
+                            candidate[old[0]] = old[1]
+                        else:
+                            candidate[key] = value
+                    try:
+                        validate_scheduled_activities_state({"version": 1, "snapshots": candidate})
+                    except ScheduledActivitiesError as exc:
+                        self.errors[sailing + ship] = str(exc) + "; previous sailing snapshots retained"
+                        continue
+                    snapshots = candidate
+                    accepted.update(updates)
+                new_state = {"version": 1, "snapshots": snapshots}
+                validate_scheduled_activities_state(new_state)
+                write_cabin_state(path, new_state)
+        except Exception:
+            self.errors["state"] = ("Cannot update scheduledActivities state; check stateFile, JSON contents, "
+                                    "permissions and overlapping checks. Previous file retained")
+        self.print_report(snapshots, accepted)
+        for message in self.errors.values():
+            log_warn("[Scheduled activities] " + message)
+        if self.errors:
+            raise ScheduledActivitiesError("One or more scheduled activity checks failed; see status lines")
+
+    def print_report(self, snapshots: dict, accepted: set) -> None:
+        log(f"\n{BLUE}Scheduled Activities & Reservations{RESET}")
+        log("  Local times as returned by Royal; confirm in Cruise Planner. No timezone conversion applied.")
+        if self.errors:
+            log("  Schedule may be incomplete; see stale captures and warnings below.")
+        sailings = sorted({(v["sailDate"], v["ship"]) for v in snapshots.values()
+                           if date.fromisoformat(v["sailDate"]) + timedelta(days=v["nights"]) >= date.today()})
+        if not sailings:
+            log("  No captured upcoming schedule available." if self.errors else "  No upcoming selected sailings.")
+        for sailing, ship in sailings:
+            selected = {key: value for key, value in snapshots.items()
+                        if (value["sailDate"], value["ship"]) == (sailing, ship)}
+            log(f"  {next(iter(selected.values()))['shipName']} ({sailing})")
+            for scope, snapshot in sorted(selected.items()):
+                freshness = "Updated" if scope in accepted else "STALE: last successful capture"
+                log(f"    Reservation {snapshot['reservation']}: {freshness} {snapshot['capturedAt']}")
+            rows = group_booked_activities(selected)
+            if not rows:
+                log("    No scheduled activities in the captured snapshot(s).")
+            for row in rows:
+                start = datetime.strptime(row["start"], "%Y%m%dT%H%M%S")
+                when = "At your leisure" if row["leisure"] else start.strftime("%H:%M")
+                if row["end"]:
+                    end = datetime.strptime(row["end"], "%Y%m%dT%H%M%S")
+                    when += "–" + end.strftime("%H:%M" if end.date() == start.date() else "%Y-%m-%d %H:%M")
+                stale = " [STALE]" if any(scope not in accepted for scope in row["scopes"]) else ""
+                log(f"    {config.format_date(start.strftime('%Y%m%d'))}  {when}  {row['title']}{stale}")
+                details = ", ".join(sorted(row["guests"].values()))
+                if row["location"]:
+                    details += " | " + row["location"]
+                log("      " + details)
+
+
 # Reservation availability (opt-in)
 ##################################
 @dataclass(frozen=True)
@@ -5992,6 +6407,7 @@ def load_config_objects(config_path: str) -> CruiseAppConfig:
         check_casino_offers=_config_bool(data.get("checkCasinoOffers"), False),
         casino_offer_warn_days=_config_days(data.get("casinoOfferWarnDays"), "casinoOfferWarnDays", 14),
         availability=parse_availability_config(data.get("reservationAlerts")),
+        scheduled_activities=parse_scheduled_activities_config(data.get("scheduledActivities")),
         output_watch_as_json=data.get("outputWatchAsJson",False),
         output_json_watch_file=data.get("outputJsonFile","output-json-watch.txt"),
         apobj=apobj,
@@ -6088,6 +6504,8 @@ def main() -> None:
     availability_healthy = True
     availability_warnings = []
     availability_found = set()
+    scheduled = (ScheduledActivitiesReport(config.scheduled_activities)
+                 if isinstance(config.scheduled_activities, ScheduledActivitiesSettings) else None)
     try:
         # Instantiate clean per-run tracker
         payment_tracker = CheckinPaymentTracker()
@@ -6283,6 +6701,11 @@ def main() -> None:
                  )
                 if config.check_casino_offers is True:
                     check_casino_offers(account_info, loyalty_number)
+                if scheduled is not None:
+                    try:
+                        scheduled.capture(account_info, bookings, ship_dictionary)
+                    except Exception:
+                        scheduled.errors["capture"] = "Scheduled activity capture failed; continuing with other checks"
                 if availability_enabled:
                     try:
                         if not account_info.is_royal:
@@ -6384,6 +6807,12 @@ def main() -> None:
             write_watch_price_json(collected_watch_rows, config.output_json_watch_file)
 
         failure_summaries = []
+        if scheduled is not None:
+            try:
+                scheduled.finish()
+            except ScheduledActivitiesError as exc:
+                log_warn(str(exc))
+                failure_summaries.append(str(exc))
         if availability_enabled:
             try:
                 finish_availability_run(config.availability, availability_found, availability_healthy, availability_warnings)

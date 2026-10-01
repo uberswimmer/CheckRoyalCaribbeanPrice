@@ -34,6 +34,7 @@ If the code saved you money or correctly predicted your cabin number, please sta
 - [Edit Config File](docs/config.md)
 - [Run](docs/run.md)
 - [Output](docs/output.md)
+- [Scheduled Activities & Reservations (Royal Caribbean, Optional)](docs/scheduled-activities.md)
 - [Get Cruise URL for Watchlist Functionality (Optional - This is only for a cruise you have not booked!)](docs/watchlist-cruise-url.md)
 - [Watch List for Beverage Packages/Excursions/etc (Optional)](docs/watchlist-addons.md)
 - [Notification Emails/Pushbullet/etc via Apprise (Optional)](docs/apprise.md)

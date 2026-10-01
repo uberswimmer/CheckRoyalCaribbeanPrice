@@ -1,5 +1,12 @@
 [Back to README](../README.md)
 
+With [`scheduledActivities`](scheduled-activities.md) configured, a separate
+**Scheduled Activities & Reservations** section follows the price and check-in
+summaries. It groups already-booked activities by sailing, in date/time order,
+with participating guests and locations. Failed refreshes retain and label the
+last successful snapshot **STALE**, rather than reporting a canceled or empty
+schedule. This is not the public onboard activity schedule in the Browse script.
+
 ## Output
 Will output information on your purchases (redacted output below)
 ```
