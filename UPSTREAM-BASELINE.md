@@ -1,9 +1,9 @@
 # Upstream baseline and contribution workflow
 
 - Upstream: https://github.com/jdeath/CheckRoyalCaribbeanPrice
-- Integrated upstream commit: `5d6185f1e81fb60569c079b7fe8d379d64867079`
-- Commit: Merge pull request #138, dining and entertainment reservation-release alerts.
-- Previous common ancestor: `53abbde41340634fc478b4f2d9ce5fc52d4fac12`.
+- Integrated upstream commit: `4c10b818b860ae9d2bad9de614ebbe66c0a4d182`.
+- Commit: Merge pull request #146, per-account `casinoOffersOnly` support.
+- Previous common ancestor: `5d6185f1e81fb60569c079b7fe8d379d64867079`.
 - Latest published upstream release when integrated: `3.6.0`. The baseline above
   includes subsequent upstream commits, not just that release.
 - License: upstream MIT license retained in `LICENSE`.
