@@ -139,7 +139,7 @@ Set `outputJsonFile` to change the output path; it defaults to `output-json-watc
 
 Optional dining and entertainment release alerts use booked Royal Caribbean
 sailings and the existing Apprise settings. Configure each reservation once and
-enable automatic discovery for dining, shows, or both. The check uses dated
+enable automatic discovery for dining, shows, or onboard activities. The check uses dated
 offering inventory, including free shows, independently of price thresholds.
 
 ```yaml
@@ -172,12 +172,18 @@ reservationAlerts:
 
 See [configuration, notification behavior, and limitations](reservation-alerts.md).
 
+This fork also accepts `onboardActivities: true` or
+`onboardActivities: {products: ["EXAMPLE_ESCAPE_A"]}` within a reservation entry.
+The example ID is fictional. Use the activity ID returned by the entertainment
+catalog. Activities share show discovery but keep separate release-alert state;
+no state reset is needed. See the reference above for scope and request costs.
+
 Selective monitoring uses markedly fewer resources: with 20 dining products in
 two catalog pages, checking one selected restaurant costs 3 requests instead of
 22. Catalog pages are still fetched, but only selected products receive eligibility
 checks. Once the dining you want has opened and you have booked it, set
 `dining: false`; keep monitoring only the restaurants still outstanding. One-time
-notifications suppress repeat alerts, not polling. Remove entries when neither
+notifications suppress repeat alerts, not polling. Remove entries when no
 category needs monitoring. Availability requests have a one-second minimum gap.
 
 Live alerts require `overflow=split` only on destinations where the actual formatted

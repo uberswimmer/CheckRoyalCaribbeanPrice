@@ -5848,7 +5848,13 @@ class AvailabilityResult:
 
 
 def availability_category_label(category: str) -> str:
-    return {"dining": "Dining reservations", "show": "Shows"}.get(category, category)
+    return {"dining": "Dining reservations", "show": "Shows",
+            "onboardActivities": "Onboard activities"}.get(category, category)
+
+
+def availability_catalog_category(category: str) -> str:
+    """Activities use the entertainment storefront, but their own eligibility type."""
+    return "show" if category == "onboardActivities" else category
 
 
 def availability_sailing_label(booking: dict) -> str:
@@ -5901,14 +5907,15 @@ def parse_availability_config(raw: Any) -> Optional[AvailabilitySettings]:
         location = f"reservationAlerts.reservations[{index}]"
         if not isinstance(item, dict):
             fail(location, "reservation entry must be a mapping")
-        keys(item, ("reservation", "dining", "shows", "notifyOnReopen"), location)
+        keys(item, ("reservation", "dining", "shows", "onboardActivities", "notifyOnReopen"), location)
         reservation = identifier(item.get("reservation"), location, "reservation")
         if reservation in seen_reservations:
             fail(location, "duplicate reservation; reservation IDs must be unique")
         seen_reservations.add(reservation)
 
         categories = []
-        for config_key, category in (("dining", "dining"), ("shows", "show")):
+        for config_key, category in (("dining", "dining"), ("shows", "show"),
+                                     ("onboardActivities", "onboardActivities")):
             value = item.get(config_key, False)
             if value is False:
                 continue
@@ -5928,7 +5935,7 @@ def parse_availability_config(raw: Any) -> Optional[AvailabilitySettings]:
             categories.append(AvailabilityCategory(category, normalized))
 
         if not categories:
-            fail(location, "at least one of dining or shows must be enabled")
+            fail(location, "at least one of dining, shows or onboardActivities must be enabled")
 
         notify_on_reopen = item.get("notifyOnReopen", False)
         if not isinstance(notify_on_reopen, bool):
@@ -6238,7 +6245,7 @@ def availability_message(booking: dict, category: AvailabilityCategory, candidat
     params = urlencode({"bookingId": str(booking["bookingId"]), "shipCode": booking["shipCode"],
                         "sailDate": availability_date(booking["sailDate"]).strftime("%Y%m%d")})
     lines.extend(["", "Cruise Planner:",
-        f"https://www.royalcaribbean.com/account/cruise-planner/category/pt_{category.category}?{params}",
+        f"https://www.royalcaribbean.com/account/cruise-planner/category/pt_{availability_catalog_category(category.category)}?{params}",
         "Times as returned by Royal. Confirm availability in Cruise Planner."])
     if category.category == "dining":
         lines.append("Reported stock does not guarantee a table for the full party.")
@@ -6434,6 +6441,9 @@ def process_availability_bookings(account: AccountInfo, bookings: list, settings
             healthy = False
             continue
 
+        # Share discovery only within this account/booking/run. Preserve partial
+        # catalog evidence for both categories without turning it into absence.
+        catalogs = {}
         for category in reservation.categories:
             log(f"      {BLUE}{availability_category_label(category.category)}{RESET}")
             if requests_failed:
@@ -6442,7 +6452,15 @@ def process_availability_bookings(account: AccountInfo, bookings: list, settings
             try:
                 complete = True
                 try:
-                    products = availability_products(account, booking, category.category)
+                    catalog_category = availability_catalog_category(category.category)
+                    if catalog_category not in catalogs:
+                        try:
+                            catalogs[catalog_category] = availability_products(account, booking, catalog_category)
+                        except AvailabilityCatalogIncomplete as exc:
+                            catalogs[catalog_category] = exc
+                    products = catalogs[catalog_category]
+                    if isinstance(products, AvailabilityCatalogIncomplete):
+                        raise products
                     if products is None:
                         log(f"        {YELLOW}No {category.category} catalog currently available; previous state preserved{RESET}")
                         # Neither a closure nor incomplete pagination. Do not prune,

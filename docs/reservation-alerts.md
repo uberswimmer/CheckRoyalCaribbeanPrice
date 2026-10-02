@@ -1,6 +1,6 @@
 # Dining and entertainment reservation-release alerts
 
-Optionally watch a booked Royal Caribbean sailing for dining or show reservations
+Optionally watch a booked Royal Caribbean sailing for dining, show or onboard-activity reservations
 to open. This checks **dated offerings with reported inventory**, rather than
 whether a product is visible in Cruise Planner or has a price. Free shows can
 therefore trigger an alert too.
@@ -47,11 +47,13 @@ looks correct. The message-specific notification checks below explain when
 | `dining: {products: [...]}` | Check only the listed dining product IDs. The catalog is still read first so a configured product that disappears from a complete catalog can be treated as unavailable. |
 | `shows: true` | Discover show products for the sailing and check each matching `pt_show` product for dated inventory. Defaults to `false`. |
 | `shows: {products: [...]}` | Check only selected show product IDs, reducing eligibility requests. |
+| `onboardActivities: true` | Fork extension: discover `pt_onboardActivities` products in the entertainment catalog, including escape rooms. Defaults to `false`. |
+| `onboardActivities: {products: [...]}` | Fork extension: check only selected onboard-activity product IDs. |
 | `notifyOnReopen: false` | Default: alert once per discovered product, account, booking and category. |
 | `notifyOnReopen: true` | Also alert after a confirmed closure and subsequent reopening. Failed or uncertain checks do not re-arm an alert. |
 | `stateFile` | JSON file used to suppress repeats across runs and restarts. Defaults to `data/reservation-availability.json`. |
 
-At least one of `dining` or `shows` must be enabled for each reservation. Product
+At least one of `dining`, `shows` or `onboardActivities` must be enabled for each reservation. Product
 codes are not required for normal use. The tracker reads the sailing's category
 catalog, filters to products whose returned type matches the requested category,
 and then checks dated offering inventory for each matching product. Royal's Dining
@@ -65,6 +67,38 @@ Existing reservations, exhausted guest allowances and personal scheduling
 conflicts do not hide a release. You must confirm that an offering is suitable
 and book it yourself. Dining stock is not a guarantee of a table for your party;
 not every dining product exposes usable dated offerings through this endpoint.
+
+### Onboard activities (fork extension)
+
+Add `onboardActivities: true` to an existing reservation entry, or select products:
+
+```yaml
+reservationAlerts:
+  dryRun: true
+  reservations:
+    - reservation: "1234567"
+      shows: true
+      onboardActivities:
+        products: ["EXAMPLE_ESCAPE_A"] # Fictional ID; use your catalog's product ID
+```
+
+Discovery uses Royal's `show` catalog; eligibility uses `pt_onboardActivities`.
+The notification links to the entertainment page. Only matching activity products
+on that page are covered, not every onboard activity, spa product or excursion.
+The API mapping is backed by sanitized escape-room captures; compare a dry run
+with Cruise Planner before relying on a new activity product.
+
+Shows and activities share catalog pages within each account/booking/run, including
+incomplete-catalog evidence. Enabling activities alongside shows adds one eligibility
+request per selected matching activity, with the same upstream pacing and retries.
+For two selected activities, that is two additional requests when show monitoring already
+fetches the catalog. Monitoring activities alone also incurs the catalog requests.
+
+This uses the same release-only evaluation, notification aggregation and v2 state.
+Activity acknowledgements have their own category key; existing dining/show state
+does not need resetting. Personal age restrictions, conflicts and booking allowances
+do not suppress release alerts. They must still be checked before booking. This
+setting does not enable calendar/activity capture, which is configured separately.
 
 ## Reducing requests: select products and stop checks you no longer need
 
@@ -111,7 +145,7 @@ reservationAlerts:
 This abbreviated example shows the category change; retain your existing
 `dryRun` and `stateFile` settings. Receiving a one-time alert suppresses repeats
 but does **not** stop polling. Disabling dining also stops discovery of new
-restaurants and detection of reopenings. Remove a reservation entry when neither
+restaurants and detection of reopenings. Remove a reservation entry when no
 category needs monitoring. Remove the whole block when no reservations remain.
 Keep the state file if you might re-enable monitoring and want to preserve prior
 acknowledgements.
