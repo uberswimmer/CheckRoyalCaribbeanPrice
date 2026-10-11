@@ -17,15 +17,19 @@ def fetch(path, method='GET', headers=None):
         return response.status, response.headers, response.read()
 
 
+last_connection_error = None
 for attempt in range(20):
     try:
         status, _, body = fetch('/')
         assert status == 200 and b'No report has been generated' in body
         break
-    except URLError:
+    except (URLError, ConnectionError) as error:
+        # A freshly started container can accept the TCP connection just before
+        # nginx is ready to serve it, which resets the first request on CI.
+        last_connection_error = error
         time.sleep(0.25)
 else:
-    raise AssertionError('Report server did not start')
+    raise AssertionError('Report server did not start') from last_connection_error
 
 # Import after readiness; runner has the checker dependencies, web container does not.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
