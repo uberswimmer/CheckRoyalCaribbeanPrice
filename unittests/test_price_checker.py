@@ -50,6 +50,7 @@ from CheckRoyalCaribbeanPrice import (
     _calculate_passenger_metrics,
     _execute_api_request,
     _extract_json_array,
+    _parse_stateroom_type,
     above_age_on_sail_date,
     check_if_room_is_available,
     derive_balance_due,
@@ -855,6 +856,59 @@ def test_get_voyages_complete_execution_path():
         log_outputs = [call[0][0] for call in mock_log.call_args_list]
         assert any("Reservation #1234567" in s for s in log_outputs)
         assert any("Cruise Fare - Total 4147.72" in s for s in log_outputs)
+
+
+def test_empty_stateroom_type_warns_and_cannot_be_priced_automatically():
+    """A fresh GTY booking can briefly have an empty cabin type.
+
+    It must produce an actionable warning and remain an explicit unknown instead
+    of being sent to Royal's pricing endpoint as the non-empty string ``NONE``.
+    """
+    with patch('CheckRoyalCaribbeanPrice.log') as mock_log:
+        assert _parse_stateroom_type("") == "NONE"
+
+    messages = [str(call.args[0]) for call in mock_log.call_args_list]
+    assert any("manual cabin price check" in message for message in messages)
+    assert _parse_stateroom_type(None) == "NONE"
+
+
+def test_get_voyages_does_not_price_an_empty_stateroom_type():
+    account_info = AccountInfo(username="test_user", password="password", cruise_line="royal")
+    account_info.access = MagicMock(token="fake_token", id="fake_id")
+
+    response = MagicMock()
+    response.json.return_value = {"payload": {"profileBookings": [{
+        "bookingId": "1234567",
+        "passengerId": "33333333",
+        "sailDate": "20261225",
+        "numberOfNights": 7,
+        "shipCode": "AL",
+        "stateroomNumber": "GTY",
+        "stateroomType": "",
+        "passengersInStateroom": [],
+    }]}}
+    metrics = {
+        "passenger_names": "",
+        "checkin_string": "Boarding Time 11:00",
+        "category_code": "XB",
+        "sub_type": "XB",
+    }
+
+    with patch('CheckRoyalCaribbeanPrice._execute_api_request', return_value=response), \
+         patch('CheckRoyalCaribbeanPrice._calculate_passenger_metrics', return_value=metrics), \
+         patch('CheckRoyalCaribbeanPrice.get_dining_and_prices',
+               return_value={"dining_selection": [], "prices": []}), \
+         patch('CheckRoyalCaribbeanPrice.get_checkin_info'), \
+         patch('CheckRoyalCaribbeanPrice.get_all_promotions'), \
+         patch('CheckRoyalCaribbeanPrice.get_orders'), \
+         patch('CheckRoyalCaribbeanPrice.get_cruise_price') as mock_price, \
+         patch('CheckRoyalCaribbeanPrice.log') as mock_log:
+        get_voyages(account_info, CruiseURLParams(), ShipRegistry())
+
+    mock_price.assert_not_called()
+    messages = [str(call.args[0]) for call in mock_log.call_args_list]
+    assert any("manual cabin price check" in message for message in messages)
+    assert any("Cannot Check Cruise Price" in message for message in messages)
 
 
 def test_ledger_insurance_and_allin_flags_reach_pricing_overrides():
