@@ -1,11 +1,11 @@
 # Upstream baseline and contribution workflow
 
 - Upstream: https://github.com/jdeath/CheckRoyalCaribbeanPrice
-- Integrated upstream commit: `b5784b23b65d6295e1e33c59582f47c5a597da59`.
-- Changes: record add-on purchase dates in price history and handle booked
-  cruises whose cabin type is temporarily absent from Royal's API.
-- Previous common ancestor: `4c10b818b860ae9d2bad9de614ebbe66c0a4d182`.
-- Latest published upstream release when integrated: `3.6.1`.
+- Integrated upstream commit: `5465f826ca87479aa71816e5450ea287530ca40c`.
+- Changes: update the Royal web-request user agent to Firefox 159 in the
+  checker and public price browser.
+- Previous common ancestor: `b5784b23b65d6295e1e33c59582f47c5a597da59`.
+- Latest published upstream release when integrated: `3.6.2`.
 - License: upstream MIT license retained in `LICENSE`.
 
 ## Ownership
