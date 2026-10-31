@@ -1,10 +1,10 @@
 # Upstream baseline and contribution workflow
 
 - Upstream: https://github.com/jdeath/CheckRoyalCaribbeanPrice
-- Integrated upstream commit: `5465f826ca87479aa71816e5450ea287530ca40c`.
-- Changes: update the Royal web-request user agent to Firefox 159 in the
-  checker and public price browser.
-- Previous common ancestor: `b5784b23b65d6295e1e33c59582f47c5a597da59`.
+- Integrated upstream commit: `bbd1f9b837be0e0d75c21fd1bbe6d20b58dba4c7`.
+- Changes: revise GTY cabin-assignment documentation to note reports that
+  Royal patched the former backend-room-number inference in October 2026.
+- Previous common ancestor: `5465f826ca87479aa71816e5450ea287530ca40c`.
 - Latest published upstream release when integrated: `3.6.2`.
 - License: upstream MIT license retained in `LICENSE`.
 
